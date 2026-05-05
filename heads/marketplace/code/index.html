@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo Marketplace — Célula Experimental</title>
+<style>
+  /* =========================================================================
+     RESET + BASE
+     ========================================================================= */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1f2e;
+    background: #f5f6f8;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select { font-family: inherit; font-size: inherit; }
+
+  /* =========================================================================
+     LAYOUT
+     ========================================================================= */
+  .app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header.topbar {
+    background: #1e293b;
+    color: #fff;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    position: sticky; top: 0; z-index: 50;
+  }
+  header.topbar .brand {
+    font-size: 18px; font-weight: 700; letter-spacing: 0.3px;
+  }
+  header.topbar .brand small {
+    font-weight: 400; font-size: 11px; opacity: 0.7; margin-left: 8px;
+    background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px;
+  }
+  header.topbar nav a {
+    font-size: 14px; opacity: 0.75; transition: opacity 0.15s;
+  }
+  header.topbar nav a:hover { opacity: 1; }
+  main {
+    flex: 1;
+    max-width: 1280px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 28px;
+  }
+  footer.bottombar {
+    background: #fff;
+    border-top: 1px solid #e2e6ee;
+    padding: 16px 28px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 12px;
+  }
+
+  /* =========================================================================
+     CATALOGO — FILTROS + GRILLA
+     ========================================================================= */
+  .page-title {
+    font-size: 26px; font-weight: 700; margin-bottom: 6px;
+  }
+  .page-subtitle {
+    color: #6b7280; font-size: 14px; margin-bottom: 24px;
+  }
+  .layout-catalog {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 28px;
+  }
+  @media (max-width: 900px) {
+    .layout-catalog { grid-template-columns: 1fr; }
+  }
+  .filters {
+    background: #fff;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    padding: 20px;
+    height: fit-content;
+    position: sticky; top: 80px;
+  }
+  .filters h3 {
+    font-size: 14px; font-weight: 600; margin-bottom: 16px;
+    color: #1a1f2e; display: flex; justify-content: space-between; align-items: center;
+  }
+  .filters h3 button {
+    background: none; border: none; color: #2563eb; font-size: 12px; font-weight: 500;
+  }
+  .filter-group { margin-bottom: 18px; }
+  .filter-group label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: #374151; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .filter-group select, .filter-group input[type=number] {
+    width: 100%; padding: 8px 10px; border: 1px solid #d1d5db;
+    border-radius: 6px; font-size: 14px; background: #fff;
+  }
+  .filter-row { display: flex; gap: 8px; }
+  .filter-row > * { flex: 1; }
+  .checkbox-list { display: flex; flex-direction: column; gap: 6px; }
+  .checkbox-list label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 400; color: #4b5563;
+    text-transform: none; letter-spacing: 0; margin: 0; cursor: pointer;
+  }
+  .checkbox-list input[type=checkbox] { cursor: pointer; }
+
+  .results-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+  }
+  .results-count { font-size: 14px; color: #6b7280; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+  }
+  .card .thumb {
+    width: 100%; aspect-ratio: 16/10;
+    background: #f3f4f6; object-fit: cover; display: block;
+  }
+  .card-body { padding: 14px 16px; }
+  .card-name {
+    font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #111827;
+  }
+  .card-loc {
+    font-size: 13px; color: #6b7280; margin-bottom: 10px;
+  }
+  .card-meta {
+    display: flex; gap: 12px; font-size: 12px; color: #4b5563; margin-bottom: 10px;
+  }
+  .card-price {
+    font-size: 14px; font-weight: 600; color: #1e40af;
+  }
+  .card-price small { font-weight: 400; color: #6b7280; }
+  .badges {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;
+  }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500;
+  }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-green { background: #d1fae5; color: #065f46; }
+  .badge-amber { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-gray { background: #f3f4f6; color: #4b5563; }
+
+  /* =========================================================================
+     PROYECTO DETAIL
+     ========================================================================= */
+  .breadcrumb {
+    font-size: 13px; color: #6b7280; margin-bottom: 16px;
+  }
+  .breadcrumb a { color: #2563eb; }
+  .project-hero {
+    background: #fff;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .project-hero img {
+    width: 100%; aspect-ratio: 21/9; object-fit: cover;
+  }
+  .project-hero .info {
+    padding: 24px 28px;
+  }
+  .project-hero h1 {
+    font-size: 28px; font-weight: 700; margin-bottom: 6px;
+  }
+  .project-hero .loc {
+    color: #6b7280; font-size: 15px; margin-bottom: 16px;
+  }
+  .project-hero .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    border-top: 1px solid #e2e6ee;
+    padding-top: 20px;
+    margin-top: 16px;
+  }
+  @media (max-width: 700px) {
+    .project-hero .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  .project-hero .stat .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #9ca3af; font-weight: 600;
+  }
+  .project-hero .stat .value {
+    font-size: 18px; font-weight: 600; color: #111827; margin-top: 2px;
+  }
+  .section {
+    background: #fff;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .section h2 {
+    font-size: 18px; font-weight: 600; margin-bottom: 14px;
+  }
+
+  /* Tabla unidades */
+  table.units {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+  }
+  table.units th, table.units td {
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid #f3f4f6;
+  }
+  table.units th {
+    background: #f9fafb; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280;
+  }
+  table.units tr:hover { background: #f9fafb; }
+  table.units .price-cell { font-weight: 600; color: #1e40af; }
+  table.units .actions-cell button {
+    background: #2563eb; color: #fff; border: none; padding: 6px 12px;
+    border-radius: 6px; font-size: 12px; font-weight: 500;
+  }
+  table.units .actions-cell button:disabled {
+    background: #d1d5db; cursor: not-allowed;
+  }
+
+  /* =========================================================================
+     COTIZADOR
+     ========================================================================= */
+  .cotizador {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  @media (max-width: 800px) {
+    .cotizador { grid-template-columns: 1fr; }
+  }
+  .cotizador .form .row {
+    margin-bottom: 16px;
+  }
+  .cotizador label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: #374151; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .cotizador input[type=number] {
+    width: 100%; padding: 10px 12px; border: 1px solid #d1d5db;
+    border-radius: 6px; font-size: 15px;
+  }
+  .cotizador .results {
+    background: #f8fafc;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .cotizador .results .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 10px 0; border-bottom: 1px solid #e2e6ee;
+  }
+  .cotizador .results .row:last-child { border-bottom: none; }
+  .cotizador .results .row .lbl { font-size: 13px; color: #6b7280; }
+  .cotizador .results .row .val { font-size: 16px; font-weight: 600; color: #111827; }
+  .cotizador .results .row.highlight .val { font-size: 22px; color: #1e40af; }
+
+  .alert {
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    border-left: 4px solid;
+  }
+  .alert-info { background: #eff6ff; border-color: #2563eb; color: #1e40af; }
+  .alert-warning { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
+  .alert-danger { background: #fef2f2; border-color: #dc2626; color: #991b1b; }
+
+  /* =========================================================================
+     UI HELPERS
+     ========================================================================= */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: #6b7280;
+  }
+  .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #111827; }
+  .btn {
+    display: inline-block;
+    padding: 10px 18px; border: none; border-radius: 6px; font-weight: 500;
+    font-size: 14px; transition: background 0.15s;
+  }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-ghost { background: transparent; color: #2563eb; }
+  .btn-ghost:hover { background: #eff6ff; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      Catálogo Marketplace
+      <small>MVP — Célula Experimental</small>
+    </div>
+    <nav>
+      <a href="#/">Catálogo</a>
+    </nav>
+  </header>
+
+  <main id="view"></main>
+
+  <footer class="bottombar">
+    Célula aislada · Datos ficticios · Valor UF referencial: <span id="uf-ref"></span> CLP
+  </footer>
+</div>
+
+<script src="data/seeds.js"></script>
+<script>
+// =============================================================================
+// REPOSITORIO en memoria (simula DB + queries)
+// =============================================================================
+const Repo = {
+  inmobiliarias: () => DATA.inmobiliarias,
+  inmobiliariaById: (id) => DATA.inmobiliarias.find(i => i.id === id),
+  proyectos: () => DATA.proyectos,
+  proyectoBySlug: (slug) => DATA.proyectos.find(p => p.slug === slug),
+  unidadesByProyecto: (pid) => DATA.unidades.filter(u => u.proyecto_id === pid),
+  unidadById: (id) => DATA.unidades.find(u => u.id === id),
+  condicionesByProyecto: (pid) => {
+    const links = DATA.proyectoCondiciones.filter(pc => pc.proyecto_id === pid);
+    return links.map(pc => ({
+      ...DATA.condicionesComerciales.find(c => c.id === pc.condicion_id),
+      valor: pc.valor
+    })).filter(c => c.publica);
+  },
+  condicionesPublicas: () => DATA.condicionesComerciales.filter(c => c.publica)
+};
+
+// =============================================================================
+// COMPUTADOS (no persistidos)
+// =============================================================================
+function tipoEntrega(proyecto) {
+  // Regla docs/01-MODELO-DATOS.md sección 5
+  if (proyecto.etapa === 'entrega_inmediata') return 'inmediata';
+  if (proyecto.fecha_entrega) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    if (proyecto.fecha_entrega <= hoy) return 'inmediata';
+  }
+  return 'futura';
+}
+
+function isPublicVisible(proyecto) {
+  // Regla docs/01-MODELO-DATOS.md sección 6.3
+  return proyecto.estado_negocio === 'activo' && proyecto.estado_ingesta === 'ok';
+}
+
+function unidadesDisponiblesCount(pid) {
+  return Repo.unidadesByProyecto(pid).filter(u => u.estado === 'disponible').length;
+}
+
+// =============================================================================
+// COTIZADOR (Nivel A)
+// Fórmula amortización francesa - docs/04-GLOSARIO-Y-CONTEXTO.md
+// =============================================================================
+function calcularDividendo(precioUf, piePorc, plazoMeses, tasaAnual) {
+  const saldoUf = precioUf * (1 - piePorc / 100);
+  const i = (tasaAnual / 100) / 12;
+  const n = plazoMeses;
+  if (i === 0) return saldoUf / n;
+  const dividendoUf = saldoUf * (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1);
+  return dividendoUf;
+}
+
+function fmtClp(n) {
+  return Math.round(n).toLocaleString('es-CL');
+}
+
+function fmtUf(n) {
+  return Number(n).toLocaleString('es-CL', { maximumFractionDigits: 1 });
+}
+
+// =============================================================================
+// FILTROS — estado mutable
+// =============================================================================
+const state = {
+  filters: {
+    comuna: '',
+    tipoEntrega: '',
+    tipologia: '',
+    precioUfMin: null,
+    precioUfMax: null,
+    anioEntrega: '',
+    soloDisponibles: true,
+    condiciones: new Set()
+  }
+};
+
+function aplicarFiltros() {
+  const f = state.filters;
+  return Repo.proyectos().filter(p => {
+    if (f.soloDisponibles && !isPublicVisible(p)) return false;
+    if (!f.soloDisponibles && p.estado_negocio === 'agotado') {
+      // permitir ver agotados, pero NO se muestran timeouts (datos stale)
+      if (p.estado_ingesta !== 'ok') return false;
+    } else if (!f.soloDisponibles && p.estado_ingesta !== 'ok') {
+      return false;
+    }
+    if (f.comuna && p.comuna !== f.comuna) return false;
+    if (f.tipoEntrega && tipoEntrega(p) !== f.tipoEntrega) return false;
+    if (f.tipologia && !p.tipologias_disponibles.includes(f.tipologia)) return false;
+    if (f.precioUfMin && p.precio_uf_max < f.precioUfMin) return false;
+    if (f.precioUfMax && p.precio_uf_min > f.precioUfMax) return false;
+    if (f.anioEntrega && p.anio_entrega !== Number(f.anioEntrega)) return false;
+    if (f.condiciones.size > 0) {
+      const condProj = Repo.condicionesByProyecto(p.id).map(c => c.tag);
+      for (const tag of f.condiciones) {
+        if (!condProj.includes(tag)) return false;
+      }
+    }
+    return true;
+  });
+}
+
+// =============================================================================
+// RENDER
+// =============================================================================
+const view = document.getElementById('view');
+
+function renderCatalog() {
+  const proyectos = aplicarFiltros();
+
+  // Listas para selects
+  const comunas = [...new Set(Repo.proyectos().map(p => p.comuna))].sort();
+  const tipologias = [...new Set(Repo.proyectos().flatMap(p => p.tipologias_disponibles))].sort();
+  const anios = [...new Set(Repo.proyectos().map(p => p.anio_entrega))].sort();
+  const condiciones = Repo.condicionesPublicas().sort((a, b) => a.orden - b.orden);
+
+  view.innerHTML = `
+    <div class="page-title">Catálogo de proyectos</div>
+    <div class="page-subtitle">Inversión inmobiliaria en Chile · ${proyectos.length} proyecto${proyectos.length !== 1 ? 's' : ''} disponible${proyectos.length !== 1 ? 's' : ''}</div>
+
+    <div class="layout-catalog">
+      <aside class="filters">
+        <h3>Filtros <button id="reset-filters">Limpiar</button></h3>
+
+        <div class="filter-group">
+          <label>Comuna</label>
+          <select id="f-comuna">
+            <option value="">Todas</option>
+            ${comunas.map(c => `<option value="${c}" ${state.filters.comuna===c?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Tipo de entrega</label>
+          <select id="f-tipo-entrega">
+            <option value="">Todas</option>
+            <option value="inmediata" ${state.filters.tipoEntrega==='inmediata'?'selected':''}>Inmediata</option>
+            <option value="futura" ${state.filters.tipoEntrega==='futura'?'selected':''}>Futura</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Tipología</label>
+          <select id="f-tipologia">
+            <option value="">Todas</option>
+            ${tipologias.map(t => `<option value="${t}" ${state.filters.tipologia===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Año de entrega</label>
+          <select id="f-anio">
+            <option value="">Todos</option>
+            ${anios.map(a => `<option value="${a}" ${state.filters.anioEntrega==a?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Precio UF (rango)</label>
+          <div class="filter-row">
+            <input type="number" id="f-uf-min" placeholder="Min" value="${state.filters.precioUfMin || ''}">
+            <input type="number" id="f-uf-max" placeholder="Max" value="${state.filters.precioUfMax || ''}">
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label>Condiciones comerciales</label>
+          <div class="checkbox-list">
+            ${condiciones.map(c => `
+              <label>
+                <input type="checkbox" data-cond="${c.tag}" ${state.filters.condiciones.has(c.tag)?'checked':''}>
+                ${c.nombre_publico}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label>
+            <input type="checkbox" id="f-solo-disp" ${state.filters.soloDisponibles?'checked':''}>
+            Solo disponibles
+          </label>
+        </div>
+      </aside>
+
+      <section>
+        <div class="results-header">
+          <div class="results-count"><strong>${proyectos.length}</strong> resultado${proyectos.length !== 1 ? 's' : ''}</div>
+        </div>
+
+        ${proyectos.length === 0 ? `
+          <div class="empty-state">
+            <h3>Sin resultados</h3>
+            <p>Probá ajustar los filtros para ver más proyectos.</p>
+          </div>
+        ` : `
+          <div class="grid">
+            ${proyectos.map(p => renderCard(p)).join('')}
+          </div>
+        `}
+      </section>
+    </div>
+  `;
+
+  // Eventos filtros
+  const onChange = () => renderCatalog();
+  document.getElementById('f-comuna').addEventListener('change', e => { state.filters.comuna = e.target.value; onChange(); });
+  document.getElementById('f-tipo-entrega').addEventListener('change', e => { state.filters.tipoEntrega = e.target.value; onChange(); });
+  document.getElementById('f-tipologia').addEventListener('change', e => { state.filters.tipologia = e.target.value; onChange(); });
+  document.getElementById('f-anio').addEventListener('change', e => { state.filters.anioEntrega = e.target.value; onChange(); });
+  document.getElementById('f-uf-min').addEventListener('change', e => { state.filters.precioUfMin = e.target.value ? Number(e.target.value) : null; onChange(); });
+  document.getElementById('f-uf-max').addEventListener('change', e => { state.filters.precioUfMax = e.target.value ? Number(e.target.value) : null; onChange(); });
+  document.getElementById('f-solo-disp').addEventListener('change', e => { state.filters.soloDisponibles = e.target.checked; onChange(); });
+  document.querySelectorAll('[data-cond]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      if (e.target.checked) state.filters.condiciones.add(e.target.dataset.cond);
+      else state.filters.condiciones.delete(e.target.dataset.cond);
+      onChange();
+    });
+  });
+  document.getElementById('reset-filters').addEventListener('click', () => {
+    state.filters = { comuna: '', tipoEntrega: '', tipologia: '', precioUfMin: null, precioUfMax: null, anioEntrega: '', soloDisponibles: true, condiciones: new Set() };
+    onChange();
+  });
+
+  // Click en card
+  document.querySelectorAll('[data-slug]').forEach(el => {
+    el.addEventListener('click', () => { window.location.hash = `/proyecto/${el.dataset.slug}`; });
+  });
+}
+
+function renderCard(p) {
+  const inm = Repo.inmobiliariaById(p.inmobiliaria_id);
+  const condList = Repo.condicionesByProyecto(p.id).slice(0, 3);
+  const dispCount = unidadesDisponiblesCount(p.id);
+  const tipoEnt = tipoEntrega(p);
+
+  let statusBadge = '';
+  if (p.estado_negocio === 'agotado') statusBadge = '<span class="badge badge-red">Agotado</span>';
+  else if (p.estado_ingesta === 'timeout') statusBadge = '<span class="badge badge-amber">Datos en revisión</span>';
+  else if (p.destacado) statusBadge = '<span class="badge badge-blue">Destacado</span>';
+
+  return `
+    <article class="card" data-slug="${p.slug}">
+      <img class="thumb" src="${p.imagen_portada}" alt="${p.nombre}" loading="lazy">
+      <div class="card-body">
+        <div class="card-name">${p.nombre}</div>
+        <div class="card-loc">${p.comuna} · ${inm.nombre_publico}</div>
+        <div class="card-meta">
+          <span>${tipoEnt === 'inmediata' ? 'Entrega inmediata' : 'Entrega ' + p.anio_entrega}</span>
+          <span>·</span>
+          <span>${dispCount} disponible${dispCount !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="card-price">
+          Desde UF ${fmtUf(p.precio_uf_min)} <small>· hasta UF ${fmtUf(p.precio_uf_max)}</small>
+        </div>
+        <div class="badges">
+          ${statusBadge}
+          ${condList.map(c => `<span class="badge badge-green">${c.nombre_publico}</span>`).join('')}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderProyecto(slug) {
+  const p = Repo.proyectoBySlug(slug);
+  if (!p) {
+    view.innerHTML = `<div class="empty-state"><h3>Proyecto no encontrado</h3><a href="#/" class="btn btn-ghost">← Volver al catálogo</a></div>`;
+    return;
+  }
+  const inm = Repo.inmobiliariaById(p.inmobiliaria_id);
+  const unidades = Repo.unidadesByProyecto(p.id);
+  const condiciones = Repo.condicionesByProyecto(p.id);
+  const tipoEnt = tipoEntrega(p);
+
+  // Alertas según estado
+  let alertHtml = '';
+  if (p.estado_negocio === 'agotado') {
+    alertHtml = `<div class="alert alert-danger"><strong>Proyecto agotado.</strong> Todas las unidades han sido vendidas o reservadas. Esta vista se conserva para referencia histórica.</div>`;
+  } else if (p.estado_ingesta === 'timeout') {
+    alertHtml = `<div class="alert alert-warning"><strong>Datos en revisión.</strong> La fuente no actualizó información en los últimos días. Los precios y disponibilidad pueden estar desactualizados. Última sincronización exitosa: ${new Date(p.ultima_ingesta_ok).toLocaleDateString('es-CL')}.</div>`;
+  }
+
+  view.innerHTML = `
+    <div class="breadcrumb">
+      <a href="#/">Catálogo</a> / <span>${p.nombre}</span>
+    </div>
+
+    ${alertHtml}
+
+    <div class="project-hero">
+      <img src="${p.imagen_portada}" alt="${p.nombre}">
+      <div class="info">
+        <h1>${p.nombre}</h1>
+        <div class="loc">${p.direccion}, ${p.comuna} · ${inm.nombre_publico}</div>
+        <p style="color:#374151;font-size:15px;">${p.descripcion}</p>
+
+        <div class="stats">
+          <div class="stat"><div class="label">Desde</div><div class="value">UF ${fmtUf(p.precio_uf_min)}</div></div>
+          <div class="stat"><div class="label">Hasta</div><div class="value">UF ${fmtUf(p.precio_uf_max)}</div></div>
+          <div class="stat"><div class="label">Pie estándar</div><div class="value">${p.pie_porcentaje || '—'}%</div></div>
+          <div class="stat"><div class="label">Entrega</div><div class="value">${tipoEnt === 'inmediata' ? 'Inmediata' : p.anio_entrega}</div></div>
+        </div>
+      </div>
+    </div>
+
+    ${condiciones.length > 0 ? `
+      <div class="section">
+        <h2>Condiciones comerciales</h2>
+        <div class="badges">
+          ${condiciones.map(c => `<span class="badge badge-green">${c.nombre_publico}${c.valor ? ' · ' + c.valor : ''}</span>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="section">
+      <h2>Unidades (${unidades.length})</h2>
+      ${unidades.length === 0 ? '<p style="color:#6b7280">Sin unidades cargadas.</p>' : `
+        <table class="units">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Tipología</th>
+              <th>Piso</th>
+              <th>Sup. (m²)</th>
+              <th>Orient.</th>
+              <th>Precio UF</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${unidades.map(u => `
+              <tr>
+                <td><strong>${u.numero}</strong></td>
+                <td>${u.tipologia}</td>
+                <td>${u.piso ?? '—'}</td>
+                <td>${u.superficie_total ?? '—'}</td>
+                <td>${u.orientacion ?? '—'}</td>
+                <td class="price-cell">UF ${fmtUf(u.precio_uf)}</td>
+                <td>${unitStatusBadge(u.estado)}</td>
+                <td class="actions-cell">
+                  <button data-unidad="${u.id}" ${u.estado !== 'disponible' ? 'disabled' : ''}>
+                    ${u.estado === 'disponible' ? 'Cotizar' : '—'}
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `}
+    </div>
+
+    <div style="margin-top:24px;font-size:12px;color:#9ca3af;">
+      <strong>Metadata técnica:</strong>
+      external_id: <code>${p.external_id}</code> ·
+      estado_negocio: <code>${p.estado_negocio}</code> ·
+      estado_ingesta: <code>${p.estado_ingesta}</code> ·
+      última ingesta ok: ${p.ultima_ingesta_ok ? new Date(p.ultima_ingesta_ok).toLocaleString('es-CL') : '—'}
+    </div>
+  `;
+
+  document.querySelectorAll('[data-unidad]').forEach(btn => {
+    btn.addEventListener('click', () => { window.location.hash = `/unidad/${btn.dataset.unidad}`; });
+  });
+}
+
+function unitStatusBadge(estado) {
+  switch(estado) {
+    case 'disponible': return '<span class="badge badge-green">Disponible</span>';
+    case 'reservada': return '<span class="badge badge-amber">Reservada</span>';
+    case 'vendida': return '<span class="badge badge-gray">Vendida</span>';
+    case 'bloqueada': return '<span class="badge badge-red">Bloqueada</span>';
+    default: return estado;
+  }
+}
+
+function renderCotizador(unidadId) {
+  const u = Repo.unidadById(unidadId);
+  if (!u) {
+    view.innerHTML = `<div class="empty-state"><h3>Unidad no encontrada</h3><a href="#/" class="btn btn-ghost">← Volver al catálogo</a></div>`;
+    return;
+  }
+  const p = DATA.proyectos.find(p => p.id === u.proyecto_id);
+  const inm = Repo.inmobiliariaById(p.inmobiliaria_id);
+
+  // Defaults
+  const piePorcDefault = p.pie_porcentaje || 20;
+  const plazoDefault = 240;
+  const tasaDefault = 4.5;
+
+  view.innerHTML = `
+    <div class="breadcrumb">
+      <a href="#/">Catálogo</a> / <a href="#/proyecto/${p.slug}">${p.nombre}</a> / <span>Unidad ${u.numero}</span>
+    </div>
+
+    <div class="page-title">Cotizador — Unidad ${u.numero}</div>
+    <div class="page-subtitle">${p.nombre} · ${u.tipologia} · ${u.superficie_total} m² · UF ${fmtUf(u.precio_uf)}</div>
+
+    <div class="cotizador">
+      <div class="form section">
+        <h2>Parámetros</h2>
+        <div class="row">
+          <label>Precio (UF)</label>
+          <input type="number" id="c-precio" value="${u.precio_uf}" readonly>
+        </div>
+        <div class="row">
+          <label>Pie (%)</label>
+          <input type="number" id="c-pie" value="${piePorcDefault}" min="0" max="100" step="1">
+        </div>
+        <div class="row">
+          <label>Plazo (meses)</label>
+          <input type="number" id="c-plazo" value="${plazoDefault}" min="60" max="360" step="12">
+        </div>
+        <div class="row">
+          <label>Tasa anual (%)</label>
+          <input type="number" id="c-tasa" value="${tasaDefault}" min="0" max="20" step="0.1">
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:#6b7280;">
+          UF referencial: <strong>${fmtClp(DATA.ufReferencia.valor_clp)} CLP</strong> (${DATA.ufReferencia.fecha})
+        </div>
+      </div>
+
+      <div class="results">
+        <h2 style="margin-bottom:16px;">Resultado estimado</h2>
+        <div class="row"><div class="lbl">Precio total</div><div class="val" id="r-total-uf">—</div></div>
+        <div class="row"><div class="lbl">Precio total (CLP)</div><div class="val" id="r-total-clp">—</div></div>
+        <div class="row"><div class="lbl">Pie</div><div class="val" id="r-pie">—</div></div>
+        <div class="row"><div class="lbl">Saldo financiado</div><div class="val" id="r-saldo">—</div></div>
+        <div class="row highlight"><div class="lbl">Dividendo mensual</div><div class="val" id="r-div">—</div></div>
+        <div class="row"><div class="lbl">Total a pagar (capital + intereses)</div><div class="val" id="r-pago-total">—</div></div>
+
+        <div style="margin-top:18px;padding:12px;background:#fff;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.5;">
+          <strong>Aviso:</strong> Cálculo referencial usando amortización francesa. La tasa final del crédito hipotecario depende de evaluación bancaria. UF se ajusta diariamente según Banco Central.
+        </div>
+      </div>
+    </div>
+  `;
+
+  const recalc = () => {
+    const precio = Number(document.getElementById('c-precio').value);
+    const pie = Number(document.getElementById('c-pie').value);
+    const plazo = Number(document.getElementById('c-plazo').value);
+    const tasa = Number(document.getElementById('c-tasa').value);
+    const ufClp = DATA.ufReferencia.valor_clp;
+
+    const pieUf = precio * (pie / 100);
+    const saldoUf = precio - pieUf;
+    const divUf = calcularDividendo(precio, pie, plazo, tasa);
+    const pagoTotalUf = pieUf + (divUf * plazo);
+
+    document.getElementById('r-total-uf').textContent = `UF ${fmtUf(precio)}`;
+    document.getElementById('r-total-clp').textContent = `$ ${fmtClp(precio * ufClp)}`;
+    document.getElementById('r-pie').textContent = `UF ${fmtUf(pieUf)} · $ ${fmtClp(pieUf * ufClp)}`;
+    document.getElementById('r-saldo').textContent = `UF ${fmtUf(saldoUf)} · $ ${fmtClp(saldoUf * ufClp)}`;
+    document.getElementById('r-div').textContent = `$ ${fmtClp(divUf * ufClp)}`;
+    document.getElementById('r-pago-total').textContent = `UF ${fmtUf(pagoTotalUf)} · $ ${fmtClp(pagoTotalUf * ufClp)}`;
+  };
+
+  ['c-pie', 'c-plazo', 'c-tasa'].forEach(id => {
+    document.getElementById(id).addEventListener('input', recalc);
+  });
+  recalc();
+}
+
+// =============================================================================
+// ROUTER (hash-based)
+// =============================================================================
+function router() {
+  const hash = window.location.hash.slice(1) || '/';
+  const m1 = hash.match(/^\/proyecto\/(.+)$/);
+  const m2 = hash.match(/^\/unidad\/(.+)$/);
+
+  if (m2) renderCotizador(m2[1]);
+  else if (m1) renderProyecto(m1[1]);
+  else renderCatalog();
+
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener('hashchange', router);
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('uf-ref').textContent = fmtClp(DATA.ufReferencia.valor_clp);
+  router();
+});
+</script>
+</body>
+</html>

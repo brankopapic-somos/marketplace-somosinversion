@@ -1,0 +1,34 @@
+# Dependencias (cuando se migre a Next)
+node_modules/
+.next/
+dist/
+build/
+out/
+
+# Variables de entorno (NUNCA commitear valores reales)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Carpetas temporales del harness
+.claude/
+
+# Cache OneDrive
+*.tmp
+~$*
