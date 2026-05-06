@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Catálogo Marketplace</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1f2e; background: #f5f6f8; line-height: 1.5; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; font-size: inherit; }
+
+  header.topbar { background: #1e293b; color: #fff; padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08); position: sticky; top: 0; z-index: 50; }
+  header.topbar .brand { font-size: 18px; font-weight: 700; }
+  header.topbar .brand small { font-weight: 400; font-size: 11px; opacity: 0.7;
+    margin-left: 8px; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; }
+  header.topbar nav { display: flex; gap: 18px; }
+  header.topbar nav a { font-size: 14px; opacity: 0.75; transition: opacity 0.15s; }
+  header.topbar nav a:hover, header.topbar nav a.active { opacity: 1; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 28px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 2px solid #e2e6ee; margin-bottom: 24px;
+    overflow-x: auto; }
+  .tabs button { background: transparent; border: none; padding: 12px 18px;
+    font-size: 14px; font-weight: 500; color: #6b7280; border-bottom: 2px solid transparent;
+    margin-bottom: -2px; white-space: nowrap; }
+  .tabs button.active { color: #2563eb; border-bottom-color: #2563eb; }
+  .tabs button:hover { color: #1e40af; }
+
+  .panel { background: #fff; border: 1px solid #e2e6ee; border-radius: 10px;
+    padding: 24px; margin-bottom: 20px; }
+  .panel h2 { font-size: 18px; font-weight: 600; margin-bottom: 14px; }
+  .panel-section { margin-bottom: 24px; }
+
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: #374151;
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .field input, .field select, .field textarea { width: 100%; padding: 8px 10px;
+    border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; background: #fff; }
+  .field textarea { min-height: 80px; resize: vertical; font-family: inherit; }
+
+  .btn { display: inline-block; padding: 9px 18px; border: none; border-radius: 6px;
+    font-weight: 500; font-size: 14px; transition: background 0.15s; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-ghost { background: transparent; color: #2563eb; border: 1px solid #d1d5db; }
+  .btn-ghost:hover { background: #f3f4f6; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .row-actions { display: flex; gap: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table th, table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+  table th { background: #f9fafb; font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+  table tr:hover { background: #f9fafb; }
+  table code { font-size: 11px; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+
+  .alert { padding: 12px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 14px;
+    border-left: 4px solid; }
+  .alert-info { background: #eff6ff; border-color: #2563eb; color: #1e40af; }
+  .alert-success { background: #f0fdf4; border-color: #16a34a; color: #14532d; }
+  .alert-warning { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
+  .alert-danger { background: #fef2f2; border-color: #dc2626; color: #991b1b; }
+
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px;
+    border-radius: 4px; font-weight: 500; }
+  .badge-green { background: #d1fae5; color: #065f46; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-amber { background: #fef3c7; color: #92400e; }
+  .badge-gray { background: #f3f4f6; color: #4b5563; }
+
+  .checkbox-list { display: flex; flex-direction: column; gap: 6px; }
+  .checkbox-list label { display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 400; cursor: pointer; }
+  .checkbox-list input[type=text] { flex: 1; max-width: 180px; padding: 4px 8px;
+    border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px; margin-bottom: 20px; }
+  .stat-box { background: #fff; border: 1px solid #e2e6ee; border-radius: 8px; padding: 16px; }
+  .stat-box .lbl { font-size: 11px; color: #9ca3af; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-box .val { font-size: 24px; font-weight: 700; color: #1e293b; margin-top: 4px; }
+
+  pre.json-output { background: #1e293b; color: #e0e7ff; padding: 16px;
+    border-radius: 8px; font-size: 12px; overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .toast { position: fixed; bottom: 20px; right: 20px;
+    padding: 12px 18px; border-radius: 8px; color: #fff; font-size: 14px;
+    z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .toast-success { background: #16a34a; }
+  .toast-error { background: #dc2626; }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200;
+    display: flex; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px;
+    max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto; }
+  .modal h2 { margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+    padding-top: 16px; border-top: 1px solid #e2e6ee; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Admin <small>Catálogo Marketplace · MVP</small></div>
+  <nav>
+    <a href="index.html">← Volver al catálogo</a>
+  </nav>
+</header>
+
+<main>
+  <div id="data-source-banner"></div>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="proyectos">Proyectos</button>
+    <button data-tab="unidades">Unidades</button>
+    <button data-tab="condiciones">Condiciones</button>
+    <button data-tab="ingesta">Ingesta</button>
+    <button data-tab="auditoria">Auditoría</button>
+    <button data-tab="datos">Datos</button>
+  </div>
+
+  <div id="tab-content"></div>
+</main>
+
+<div id="toast-container"></div>
+<div id="modal-container"></div>
+
+<script src="data/seeds.js"></script>
+<script src="data/repo.js"></script>
+<script>
+// =============================================================================
+// ADMIN UI — todo el JS inline, sin frameworks
+// =============================================================================
+
+const tabContent = document.getElementById('tab-content');
+let activeTab = 'dashboard';
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function showModal(html, onClose) {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-bg';
+  wrap.innerHTML = `<div class="modal">${html}</div>`;
+  wrap.addEventListener('click', e => {
+    if (e.target === wrap) {
+      wrap.remove();
+      if (onClose) onClose();
+    }
+  });
+  document.getElementById('modal-container').appendChild(wrap);
+  return wrap;
+}
+
+function fmt(n) { return Number(n).toLocaleString('es-CL', { maximumFractionDigits: 0 }); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+// =============================================================================
+// TABS
+// =============================================================================
+document.querySelectorAll('#tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTab = btn.dataset.tab;
+    render();
+  });
+});
+
+function render() {
+  const banner = document.getElementById('data-source-banner');
+  banner.innerHTML = window.Marketplace.source === 'localStorage'
+    ? `<div class="alert alert-info">📦 Trabajando con datos modificados en <strong>localStorage</strong>. <a href="#" id="reset-link" style="color:#1e40af;text-decoration:underline;">Resetear a seeds originales</a></div>`
+    : `<div class="alert alert-success">🌱 Trabajando con datos seed iniciales. Cualquier cambio se guarda en localStorage de este navegador.</div>`;
+  if (window.Marketplace.source === 'localStorage') {
+    document.getElementById('reset-link').addEventListener('click', e => {
+      e.preventDefault();
+      if (confirm('¿Resetear todos los datos a los seeds originales? Se perderán los cambios en localStorage.')) {
+        window.Marketplace.reset();
+      }
+    });
+  }
+
+  const renderers = { dashboard, proyectos, unidades, condiciones, ingesta, auditoria, datos };
+  renderers[activeTab]();
+}
+
+// =============================================================================
+// DASHBOARD
+// =============================================================================
+function dashboard() {
+  const D = window.DATA;
+  const audit = window.Marketplace.getAuditLog();
+  const totalUnidadesDisponibles = D.unidades.filter(u => u.estado === 'disponible').length;
+  const proyectosTimeout = D.proyectos.filter(p => p.estado_ingesta === 'timeout').length;
+  const proyectosAgotados = D.proyectos.filter(p => p.estado_negocio === 'agotado').length;
+
+  tabContent.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-box"><div class="lbl">Inmobiliarias</div><div class="val">${D.inmobiliarias.length}</div></div>
+      <div class="stat-box"><div class="lbl">Proyectos</div><div class="val">${D.proyectos.length}</div></div>
+      <div class="stat-box"><div class="lbl">Unidades</div><div class="val">${D.unidades.length}</div></div>
+      <div class="stat-box"><div class="lbl">Disponibles</div><div class="val" style="color:#16a34a;">${totalUnidadesDisponibles}</div></div>
+      <div class="stat-box"><div class="lbl">Agotados</div><div class="val" style="color:#dc2626;">${proyectosAgotados}</div></div>
+      <div class="stat-box"><div class="lbl">Timeout ingesta</div><div class="val" style="color:#f59e0b;">${proyectosTimeout}</div></div>
+      <div class="stat-box"><div class="lbl">Ingestas registradas</div><div class="val">${audit.length}</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>¿Cómo cargar datos al marketplace?</h2>
+      <p style="color:#4b5563;margin-bottom:14px;">Tres caminos disponibles:</p>
+      <ol style="padding-left:20px;line-height:1.8;color:#374151;">
+        <li><strong>Manual (más control)</strong> → pestaña <a href="#" data-go="proyectos" style="color:#2563eb;">Proyectos</a> y <a href="#" data-go="unidades" style="color:#2563eb;">Unidades</a>: formularios para crear/editar/eliminar.</li>
+        <li><strong>Ingesta por adaptador (escalable)</strong> → pestaña <a href="#" data-go="ingesta" style="color:#2563eb;">Ingesta</a>: corre un adaptador (mock generator, JSON paste) que normaliza y persiste.</li>
+        <li><strong>Editar directo en código</strong> → editar <code>data/seeds.js</code>, commit + push. Ver <code>HEAD-MARKETPLACE.md</code> sección 1A.</li>
+      </ol>
+    </div>
+  `;
+  document.querySelectorAll('[data-go]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelector(`#tabs button[data-tab="${a.dataset.go}"]`).click();
+    });
+  });
+}
+
+// =============================================================================
+// PROYECTOS — CRUD
+// =============================================================================
+function proyectos() {
+  const D = window.DATA;
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Proyectos (${D.proyectos.length})
+        <button class="btn btn-primary" id="btn-add-proyecto">+ Nuevo proyecto</button>
+      </h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre</th><th>Comuna</th><th>Inmob.</th><th>Etapa</th>
+            <th>Precio UF</th><th>Estado neg.</th><th>Estado ing.</th><th>Unidades</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${D.proyectos.map(p => {
+            const inm = D.inmobiliarias.find(i => i.id === p.inmobiliaria_id);
+            const unidCount = D.unidades.filter(u => u.proyecto_id === p.id).length;
+            return `
+              <tr>
+                <td><strong>${p.nombre}</strong><br><code>${p.external_id}</code></td>
+                <td>${p.comuna}</td>
+                <td>${inm ? inm.nombre_publico : '—'}</td>
+                <td>${p.etapa}</td>
+                <td>${fmt(p.precio_uf_min)}-${fmt(p.precio_uf_max)}</td>
+                <td>${stateBadge(p.estado_negocio, 'negocio')}</td>
+                <td>${stateBadge(p.estado_ingesta, 'ingesta')}</td>
+                <td>${unidCount}</td>
+                <td class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-edit="${p.id}">Editar</button>
+                  <button class="btn btn-danger btn-sm" data-del="${p.id}">×</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-add-proyecto').addEventListener('click', () => proyectoForm(null));
+  document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => proyectoForm(b.dataset.edit)));
+  document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+    const p = D.proyectos.find(p => p.id === b.dataset.del);
+    if (confirm(`¿Eliminar "${p.nombre}" y todas sus unidades?`)) {
+      window.Marketplace.deleteProyecto(b.dataset.del);
+      toast('Proyecto eliminado'); render();
+    }
+  }));
+}
+
+function proyectoForm(id) {
+  const D = window.DATA;
+  const p = id ? D.proyectos.find(p => p.id === id) : {};
+  const isEdit = !!id;
+  const html = `
+    <h2>${isEdit ? 'Editar' : 'Nuevo'} proyecto</h2>
+    <form id="form-proyecto">
+      <div class="form-grid">
+        <div class="field full"><label>Nombre *</label><input name="nombre" value="${p.nombre || ''}" required></div>
+        <div class="field"><label>Inmobiliaria *</label>
+          <select name="inmobiliaria_id" required>
+            <option value="">—</option>
+            ${D.inmobiliarias.map(i => `<option value="${i.id}" ${p.inmobiliaria_id === i.id ? 'selected' : ''}>${i.nombre_publico}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>External ID</label><input name="external_id" value="${p.external_id || ''}" placeholder="auto si vacío"></div>
+        <div class="field"><label>Comuna *</label><input name="comuna" value="${p.comuna || ''}" required></div>
+        <div class="field"><label>Región</label><input name="region" value="${p.region || 'Metropolitana'}"></div>
+        <div class="field full"><label>Dirección</label><input name="direccion" value="${p.direccion || ''}"></div>
+        <div class="field"><label>Etapa *</label>
+          <select name="etapa" required>
+            <option value="en_blanco" ${p.etapa === 'en_blanco' ? 'selected' : ''}>En blanco</option>
+            <option value="en_verde" ${p.etapa === 'en_verde' ? 'selected' : ''}>En verde</option>
+            <option value="entrega_inmediata" ${p.etapa === 'entrega_inmediata' ? 'selected' : ''}>Entrega inmediata</option>
+          </select>
+        </div>
+        <div class="field"><label>Año entrega *</label><input type="number" name="anio_entrega" value="${p.anio_entrega || 2026}" min="2020" max="2050" required></div>
+        <div class="field"><label>Fecha entrega</label><input type="date" name="fecha_entrega" value="${p.fecha_entrega || ''}"></div>
+        <div class="field"><label>Precio UF mín *</label><input type="number" name="precio_uf_min" value="${p.precio_uf_min || ''}" min="1" required></div>
+        <div class="field"><label>Precio UF máx *</label><input type="number" name="precio_uf_max" value="${p.precio_uf_max || ''}" min="1" required></div>
+        <div class="field"><label>Pie %</label><input type="number" name="pie_porcentaje" value="${p.pie_porcentaje || 20}" min="0" max="100"></div>
+        <div class="field"><label>Estado negocio</label>
+          <select name="estado_negocio">
+            <option value="activo" ${p.estado_negocio === 'activo' ? 'selected' : ''}>Activo</option>
+            <option value="agotado" ${p.estado_negocio === 'agotado' ? 'selected' : ''}>Agotado</option>
+            <option value="pausado" ${p.estado_negocio === 'pausado' ? 'selected' : ''}>Pausado</option>
+          </select>
+        </div>
+        <div class="field"><label>Estado ingesta</label>
+          <select name="estado_ingesta">
+            <option value="ok" ${p.estado_ingesta === 'ok' ? 'selected' : ''}>OK</option>
+            <option value="timeout" ${p.estado_ingesta === 'timeout' ? 'selected' : ''}>Timeout</option>
+            <option value="error" ${p.estado_ingesta === 'error' ? 'selected' : ''}>Error</option>
+          </select>
+        </div>
+        <div class="field full"><label>Imagen portada (URL)</label><input name="imagen_portada" value="${p.imagen_portada || ''}" placeholder="https://placehold.co/800x500/...?text=Mi+proyecto"></div>
+        <div class="field full"><label>Tipologías disponibles (separadas por coma)</label><input name="tipologias_disponibles" value="${(p.tipologias_disponibles || []).join(',')}" placeholder="1d1b,2d2b,3d2b"></div>
+        <div class="field full"><label>Descripción</label><textarea name="descripcion">${p.descripcion || ''}</textarea></div>
+        <div class="field"><label><input type="checkbox" name="destacado" ${p.destacado ? 'checked' : ''}> Destacado</label></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar cambios' : 'Crear proyecto'}</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-proyecto').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = Object.fromEntries(fd.entries());
+    data.destacado = fd.get('destacado') === 'on';
+    data.tipologias_disponibles = (data.tipologias_disponibles || '').split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      if (isEdit) window.Marketplace.updateProyecto(id, data);
+      else window.Marketplace.addProyecto(data);
+      modal.remove(); toast(isEdit ? 'Proyecto actualizado' : 'Proyecto creado'); render();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// =============================================================================
+// UNIDADES — CRUD
+// =============================================================================
+function unidades() {
+  const D = window.DATA;
+  const proyectoFilterId = window._unidadFilter || '';
+
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Unidades (${D.unidades.length})
+        <button class="btn btn-primary" id="btn-add-unidad">+ Nueva unidad</button>
+      </h2>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;font-weight:600;color:#374151;">Filtrar por proyecto:</label>
+        <select id="filter-proyecto" style="margin-left:8px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+          <option value="">Todos</option>
+          ${D.proyectos.map(p => `<option value="${p.id}" ${proyectoFilterId === p.id ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+        </select>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Proyecto</th><th>N°</th><th>Tipo</th><th>Tipología</th><th>Piso</th><th>Sup.</th><th>Precio UF</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody>
+          ${D.unidades.filter(u => !proyectoFilterId || u.proyecto_id === proyectoFilterId).map(u => {
+            const proj = D.proyectos.find(p => p.id === u.proyecto_id);
+            return `
+              <tr>
+                <td>${proj ? proj.nombre : '—'}<br><code>${u.external_id}</code></td>
+                <td>${u.numero}</td><td>${u.tipo}</td><td>${u.tipologia}</td>
+                <td>${u.piso ?? '—'}</td><td>${u.superficie_total ?? '—'}</td>
+                <td>${fmt(u.precio_uf)}</td>
+                <td>${unitStateBadge(u.estado)}</td>
+                <td class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-edit-u="${u.id}">Editar</button>
+                  <button class="btn btn-danger btn-sm" data-del-u="${u.id}">×</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('filter-proyecto').addEventListener('change', e => {
+    window._unidadFilter = e.target.value; unidades();
+  });
+  document.getElementById('btn-add-unidad').addEventListener('click', () => unidadForm(null));
+  document.querySelectorAll('[data-edit-u]').forEach(b => b.addEventListener('click', () => unidadForm(b.dataset.editU)));
+  document.querySelectorAll('[data-del-u]').forEach(b => b.addEventListener('click', () => {
+    if (confirm('¿Eliminar unidad?')) {
+      window.Marketplace.deleteUnidad(b.dataset.delU);
+      toast('Unidad eliminada'); unidades();
+    }
+  }));
+}
+
+function unidadForm(id) {
+  const D = window.DATA;
+  const u = id ? D.unidades.find(u => u.id === id) : {};
+  const isEdit = !!id;
+  const currentEstado = u.estado || 'disponible';
+  const allowedEstados = isEdit
+    ? [currentEstado, ...window.Marketplace.TRANSITIONS[currentEstado]]
+    : ['disponible', 'reservada', 'bloqueada']; // al crear, no se puede crear ya como vendida
+
+  const html = `
+    <h2>${isEdit ? 'Editar' : 'Nueva'} unidad</h2>
+    ${isEdit ? `<div class="alert alert-info" style="font-size:12px;">Estado actual: <strong>${currentEstado}</strong>. Transiciones permitidas: ${(window.Marketplace.TRANSITIONS[currentEstado] || []).join(', ') || 'ninguna (estado terminal)'}</div>` : ''}
+    <form id="form-unidad">
+      <div class="form-grid">
+        <div class="field full"><label>Proyecto *</label>
+          <select name="proyecto_id" required>
+            <option value="">—</option>
+            ${D.proyectos.map(p => `<option value="${p.id}" ${u.proyecto_id === p.id ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Número *</label><input name="numero" value="${u.numero || ''}" required></div>
+        <div class="field"><label>External ID</label><input name="external_id" value="${u.external_id || ''}" placeholder="auto si vacío"></div>
+        <div class="field"><label>Tipo</label>
+          <select name="tipo">
+            ${['departamento','local','oficina','bodega','estacionamiento'].map(t => `<option value="${t}" ${u.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Tipología *</label>
+          <select name="tipologia" required>
+            ${['studio','1d1b','2d1b','2d2b','3d2b','3d3b','4d3b','local','oficina','bodega','estacionamiento'].map(t => `<option value="${t}" ${u.tipologia === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Piso</label><input type="number" name="piso" value="${u.piso ?? ''}"></div>
+        <div class="field"><label>Orientación</label>
+          <select name="orientacion">
+            <option value="">—</option>
+            ${['N','S','O','P','NO','NP','SO','SP'].map(o => `<option value="${o}" ${u.orientacion === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Sup. total (m²)</label><input type="number" name="superficie_total" value="${u.superficie_total ?? ''}" step="0.1"></div>
+        <div class="field"><label>Sup. interior</label><input type="number" name="superficie_interior" value="${u.superficie_interior ?? ''}" step="0.1"></div>
+        <div class="field"><label>Sup. terraza</label><input type="number" name="superficie_terraza" value="${u.superficie_terraza ?? ''}" step="0.1"></div>
+        <div class="field"><label>Precio UF *</label><input type="number" name="precio_uf" value="${u.precio_uf || ''}" required min="1"></div>
+        <div class="field"><label>Descuento %</label><input type="number" name="descuento_porcentaje" value="${u.descuento_porcentaje ?? ''}" min="0" max="100"></div>
+        <div class="field"><label>Bono pie %</label><input type="number" name="bono_pie_porcentaje" value="${u.bono_pie_porcentaje ?? ''}" min="0" max="100"></div>
+        <div class="field"><label>Est. inc.</label><input type="number" name="estacionamiento_incluido" value="${u.estacionamiento_incluido ?? 0}" min="0"></div>
+        <div class="field"><label>Bod. inc.</label><input type="number" name="bodega_incluida" value="${u.bodega_incluida ?? 0}" min="0"></div>
+        <div class="field"><label>Estado</label>
+          <select name="estado">
+            ${allowedEstados.map(s => `<option value="${s}" ${u.estado === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar' : 'Crear'}</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-unidad').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      if (isEdit) window.Marketplace.updateUnidad(id, data);
+      else window.Marketplace.addUnidad(data);
+      modal.remove(); toast(isEdit ? 'Unidad actualizada' : 'Unidad creada'); unidades();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// =============================================================================
+// CONDICIONES — relación N:M
+// =============================================================================
+function condiciones() {
+  const D = window.DATA;
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2>Condiciones por proyecto</h2>
+      <p style="color:#6b7280;margin-bottom:16px;font-size:13px;">Asignar condiciones comerciales a cada proyecto (tabla relacional <code>ProyectoCondicion</code>). Se puede agregar un valor opcional (ej. "10%", "12 cuotas").</p>
+      ${D.proyectos.map(p => {
+        const links = D.proyectoCondiciones.filter(pc => pc.proyecto_id === p.id);
+        return `
+          <div class="panel-section" style="border-bottom:1px solid #e2e6ee;padding-bottom:18px;margin-bottom:18px;">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:10px;">${p.nombre} <span class="badge badge-gray">${p.comuna}</span></h3>
+            <div class="checkbox-list">
+              ${D.condicionesComerciales.map(c => {
+                const link = links.find(l => l.condicion_id === c.id);
+                return `
+                  <label>
+                    <input type="checkbox" data-pc="${p.id}|${c.id}" ${link ? 'checked' : ''}>
+                    <span style="min-width:200px;">${c.nombre_publico}</span>
+                    <input type="text" data-pcv="${p.id}|${c.id}" placeholder="valor (opcional)" value="${link && link.valor ? link.valor : ''}" ${!link ? 'disabled' : ''}>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+            <button class="btn btn-primary btn-sm" data-save-pc="${p.id}" style="margin-top:10px;">Guardar condiciones de "${p.nombre}"</button>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+  document.querySelectorAll('[data-pc]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const valInput = cb.parentElement.querySelector('[data-pcv]');
+      valInput.disabled = !cb.checked;
+      if (!cb.checked) valInput.value = '';
+    });
+  });
+  document.querySelectorAll('[data-save-pc]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pid = btn.dataset.savePc;
+      const ids = []; const valores = {};
+      document.querySelectorAll(`[data-pc^="${pid}|"]`).forEach(cb => {
+        const cid = cb.dataset.pc.split('|')[1];
+        if (cb.checked) {
+          ids.push(cid);
+          const v = document.querySelector(`[data-pcv="${pid}|${cid}"]`).value.trim();
+          if (v) valores[cid] = v;
+        }
+      });
+      window.Marketplace.setCondicionesProyecto(pid, ids, valores);
+      toast('Condiciones actualizadas');
+    });
+  });
+}
+
+// =============================================================================
+// INGESTA — Adaptadores
+// =============================================================================
+function ingesta() {
+  const D = window.DATA;
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2>Ingesta por adaptador</h2>
+      <p style="color:#6b7280;margin-bottom:16px;font-size:13px;">El sistema implementa el patrón adaptador + normalizador documentado en <code>docs/02-INGESTA.md</code>. Cada adaptador traduce una fuente externa al modelo común. El normalizador valida y persiste con upsert por <code>(inmobiliaria_id, external_id)</code>.</p>
+
+      <div class="form-grid">
+        <div class="field"><label>Adaptador</label>
+          <select id="ing-adapter">
+            <option value="mock">mock-generator (genera N proyectos sintéticos)</option>
+            <option value="json-paste">json-paste (pegás un JSON)</option>
+          </select>
+        </div>
+        <div class="field"><label>Inmobiliaria destino *</label>
+          <select id="ing-inmob">
+            <option value="">—</option>
+            ${D.inmobiliarias.map(i => `<option value="${i.id}">${i.nombre_publico}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div id="ing-config-mock" class="form-grid" style="margin-top:16px;">
+        <div class="field"><label>Cantidad de proyectos a generar</label><input type="number" id="ing-cantidad" value="2" min="1" max="20"></div>
+      </div>
+
+      <div id="ing-config-json" class="form-grid" style="margin-top:16px;display:none;">
+        <div class="field full"><label>JSON crudo (array de proyectos con <code>unidades_crudas</code>)</label>
+          <textarea id="ing-json" style="min-height:160px;font-family:ui-monospace,monospace;font-size:12px;" placeholder='[{"external_id":"DEMO-001","nombre":"Demo","comuna":"Las Condes","etapa":"en_verde","anio_entrega":2027,"precio_uf_min":3500,"precio_uf_max":5500,"tipologias_disponibles":["1d1b","2d2b"],"unidades_crudas":[{"external_id":"DEMO-001-U1","numero":"101","tipologia":"1d1b","superficie_total":45,"precio_uf":3500}]}]'></textarea>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <button class="btn btn-primary" id="btn-run-sync">▶ Correr ingesta</button>
+      </div>
+
+      <div id="ing-result" style="margin-top:20px;"></div>
+    </div>
+  `;
+
+  const adapterSel = document.getElementById('ing-adapter');
+  adapterSel.addEventListener('change', () => {
+    document.getElementById('ing-config-mock').style.display = adapterSel.value === 'mock' ? 'grid' : 'none';
+    document.getElementById('ing-config-json').style.display = adapterSel.value === 'json-paste' ? 'grid' : 'none';
+  });
+
+  document.getElementById('btn-run-sync').addEventListener('click', () => {
+    const inmob = document.getElementById('ing-inmob').value;
+    if (!inmob) { toast('Seleccioná una inmobiliaria', 'error'); return; }
+    const adapter = adapterSel.value;
+    const config = { inmobiliaria_id: inmob, modo: 'manual' };
+    if (adapter === 'mock') config.cantidad = Number(document.getElementById('ing-cantidad').value || 1);
+    if (adapter === 'json-paste') config.json = document.getElementById('ing-json').value;
+    try {
+      const result = window.Marketplace.runIngesta(adapter, config);
+      const colorClass = result.status === 'success' ? 'alert-success' : (result.status === 'partial' ? 'alert-warning' : 'alert-danger');
+      document.getElementById('ing-result').innerHTML = `
+        <div class="alert ${colorClass}">
+          Ingesta <strong>${result.status}</strong> en ${result.duracion_ms}ms ·
+          recibidos: ${result.proyectos_recibidos} · creados: ${result.proyectos_creados} · actualizados: ${result.proyectos_actualizados} · inválidos: ${result.proyectos_invalidados}
+        </div>
+        <pre class="json-output">${JSON.stringify(result, null, 2)}</pre>
+      `;
+      toast(`Ingesta ${result.status}: +${result.proyectos_creados} creados, ~${result.proyectos_actualizados} actualizados`,
+            result.status === 'failed' ? 'error' : 'success');
+    } catch (err) {
+      document.getElementById('ing-result').innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+      toast(err.message, 'error');
+    }
+  });
+}
+
+// =============================================================================
+// AUDITORÍA — historial de ingestas
+// =============================================================================
+function auditoria() {
+  const log = window.Marketplace.getAuditLog();
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Auditoría de ingestas (${log.length})
+        ${log.length > 0 ? '<button class="btn btn-ghost btn-sm" id="clear-audit">Limpiar historial</button>' : ''}
+      </h2>
+      ${log.length === 0 ? '<p style="color:#6b7280">Sin registros. Corré una ingesta para ver el historial.</p>' : `
+        <table>
+          <thead>
+            <tr><th>Timestamp</th><th>Adaptador</th><th>Modo</th><th>Status</th><th>Recibidos</th><th>Creados</th><th>Actualizados</th><th>Inválidos</th><th>Duración</th></tr>
+          </thead>
+          <tbody>
+            ${log.map(e => `
+              <tr>
+                <td>${fmtDate(e.timestamp)}</td>
+                <td><code>${e.adapter}</code></td>
+                <td>${e.modo}</td>
+                <td>${stateBadge(e.status, 'audit')}</td>
+                <td>${e.proyectos_recibidos}</td>
+                <td>${e.proyectos_creados}</td>
+                <td>${e.proyectos_actualizados}</td>
+                <td>${e.proyectos_invalidados}</td>
+                <td>${e.duracion_ms}ms</td>
+              </tr>
+              ${e.errores && e.errores.length > 0 ? `
+                <tr><td colspan="9" style="background:#fef2f2;font-size:12px;">
+                  <strong>Errores:</strong> ${e.errores.map(err => `${err.external_id || err.tipo || '?'}: ${err.msg}`).join(' · ')}
+                </td></tr>
+              ` : ''}
+            `).join('')}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+  if (log.length > 0) {
+    document.getElementById('clear-audit').addEventListener('click', () => {
+      if (confirm('¿Limpiar historial de auditoría?')) {
+        window.Marketplace.clearAuditLog();
+        toast('Historial limpiado'); auditoria();
+      }
+    });
+  }
+}
+
+// =============================================================================
+// DATOS — export / import / reset
+// =============================================================================
+function datos() {
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2>Datos del marketplace</h2>
+      <p style="color:#6b7280;margin-bottom:16px;font-size:13px;">Exportá el estado actual (incluye cambios en localStorage) o reseteá a los seeds originales.</p>
+
+      <div class="panel-section">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Exportar JSON</h3>
+        <button class="btn btn-primary" id="btn-export">Exportar datos actuales</button>
+        <button class="btn btn-ghost" id="btn-show-export" style="margin-left:8px;">Ver en pantalla</button>
+      </div>
+
+      <div class="panel-section">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Importar JSON</h3>
+        <textarea id="import-json" style="min-height:120px;width:100%;font-family:ui-monospace,monospace;font-size:12px;padding:10px;border:1px solid #d1d5db;border-radius:6px;" placeholder='Pegá aquí un JSON con la estructura {"inmobiliarias":[],"proyectos":[],"unidades":[],"condicionesComerciales":[],"proyectoCondiciones":[],"ufReferencia":{}}'></textarea>
+        <button class="btn btn-primary" id="btn-import" style="margin-top:8px;">Importar (reemplaza datos)</button>
+      </div>
+
+      <div class="panel-section">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#dc2626;">Zona peligrosa</h3>
+        <button class="btn btn-danger" id="btn-reset">Resetear todo a seeds originales</button>
+      </div>
+
+      <div id="data-area"></div>
+    </div>
+  `;
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const blob = new Blob([window.Marketplace.exportData()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `marketplace-data-${Date.now()}.json`;
+    a.click();
+    toast('Descargando JSON');
+  });
+  document.getElementById('btn-show-export').addEventListener('click', () => {
+    document.getElementById('data-area').innerHTML = `<pre class="json-output" style="margin-top:14px;max-height:400px;overflow:auto;">${window.Marketplace.exportData()}</pre>`;
+  });
+  document.getElementById('btn-import').addEventListener('click', () => {
+    try {
+      const json = document.getElementById('import-json').value;
+      if (!json.trim()) return toast('Pegá un JSON', 'error');
+      window.Marketplace.importData(json);
+      toast('Datos importados — recargá para ver');
+      setTimeout(() => location.reload(), 1500);
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if (confirm('¿Borrar TODO localStorage y volver a seeds originales? Esta acción no se puede deshacer.')) {
+      window.Marketplace.reset();
+    }
+  });
+}
+
+// =============================================================================
+// HELPERS UI
+// =============================================================================
+function stateBadge(s, kind) {
+  if (kind === 'negocio') {
+    const map = { activo: 'badge-green', agotado: 'badge-red', pausado: 'badge-amber' };
+    return `<span class="badge ${map[s] || 'badge-gray'}">${s}</span>`;
+  }
+  if (kind === 'ingesta') {
+    const map = { ok: 'badge-green', timeout: 'badge-amber', error: 'badge-red' };
+    return `<span class="badge ${map[s] || 'badge-gray'}">${s}</span>`;
+  }
+  if (kind === 'audit') {
+    const map = { success: 'badge-green', partial: 'badge-amber', failed: 'badge-red' };
+    return `<span class="badge ${map[s] || 'badge-gray'}">${s}</span>`;
+  }
+  return s;
+}
+
+function unitStateBadge(estado) {
+  const map = { disponible: 'badge-green', reservada: 'badge-amber', vendida: 'badge-gray', bloqueada: 'badge-red' };
+  return `<span class="badge ${map[estado] || 'badge-gray'}">${estado}</span>`;
+}
+
+// Init
+render();
+</script>
+
+</body>
+</html>

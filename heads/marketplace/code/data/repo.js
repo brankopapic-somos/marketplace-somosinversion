@@ -1,0 +1,534 @@
+// =============================================================================
+// REPO — Capa de datos compartida (catálogo + admin)
+//
+// Persistencia: localStorage. Si no hay datos en localStorage, hidrata desde
+// window.DATA (seeds.js). Toda mutación se escribe a localStorage.
+//
+// Conforme al modelo en docs/01-MODELO-DATOS.md (con 7 correcciones aplicadas).
+// =============================================================================
+
+(function () {
+  const STORAGE_KEY = "marketplace.data.v1";
+  const AUDIT_KEY = "marketplace.audit.v1";
+
+  // ---------------------------------------------------------------------------
+  // Hidratación inicial
+  // ---------------------------------------------------------------------------
+  function hydrate() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw);
+        // Validación mínima de schema
+        if (stored && stored.proyectos && stored.unidades) {
+          window.DATA = stored;
+          return "localStorage";
+        }
+      }
+    } catch (e) {
+      console.warn("Error leyendo localStorage, usando seeds:", e);
+    }
+    // Fallback: seeds.js ya seteó window.DATA
+    return "seeds";
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(window.DATA));
+    } catch (e) {
+      console.error("Error persistiendo en localStorage:", e);
+      alert("Error: localStorage lleno o no disponible.");
+    }
+  }
+
+  function uid(prefix) {
+    return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  }
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  // ---------------------------------------------------------------------------
+  // AUDIT LOG (ingestas)
+  // ---------------------------------------------------------------------------
+  function getAuditLog() {
+    try {
+      return JSON.parse(localStorage.getItem(AUDIT_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function addAuditEntry(entry) {
+    const log = getAuditLog();
+    log.unshift({ ...entry, id: uid("audit"), timestamp: nowIso() });
+    if (log.length > 100) log.pop(); // limit history
+    localStorage.setItem(AUDIT_KEY, JSON.stringify(log));
+  }
+
+  function clearAuditLog() {
+    localStorage.removeItem(AUDIT_KEY);
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRUD: Proyectos
+  // ---------------------------------------------------------------------------
+  function addProyecto(p) {
+    const errors = validateProyecto(p);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    const proyecto = {
+      id: p.id || uid("p"),
+      external_id: p.external_id || uid("ext"),
+      inmobiliaria_id: p.inmobiliaria_id,
+      slug: p.slug || slugify(p.nombre),
+      nombre: p.nombre,
+      region: p.region || "Metropolitana",
+      comuna: p.comuna,
+      direccion: p.direccion || "",
+      gps_lat: p.gps_lat || null,
+      gps_lon: p.gps_lon || null,
+      etapa: p.etapa,
+      fecha_entrega: p.fecha_entrega || null,
+      anio_entrega: p.anio_entrega,
+      precio_uf_min: Number(p.precio_uf_min),
+      precio_uf_max: Number(p.precio_uf_max),
+      pie_porcentaje: p.pie_porcentaje ? Number(p.pie_porcentaje) : null,
+      reserva_clp: p.reserva_clp ? Number(p.reserva_clp) : null,
+      total_unidades: p.total_unidades || null,
+      total_pisos: p.total_pisos || null,
+      descripcion: p.descripcion || "",
+      imagen_portada: p.imagen_portada || `https://placehold.co/800x500/64748b/ffffff?text=${encodeURIComponent(p.nombre)}`,
+      tipologias_disponibles: p.tipologias_disponibles || [],
+      estado_negocio: p.estado_negocio || "activo",
+      estado_ingesta: p.estado_ingesta || "ok",
+      ultima_ingesta_ok: p.ultima_ingesta_ok || nowIso(),
+      destacado: !!p.destacado,
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
+    window.DATA.proyectos.push(proyecto);
+    persist();
+    return proyecto;
+  }
+
+  function updateProyecto(id, patch) {
+    const i = window.DATA.proyectos.findIndex(p => p.id === id);
+    if (i < 0) throw new Error("Proyecto no encontrado: " + id);
+    const updated = { ...window.DATA.proyectos[i], ...patch, updated_at: nowIso() };
+    const errors = validateProyecto(updated);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    window.DATA.proyectos[i] = updated;
+    persist();
+    return updated;
+  }
+
+  function deleteProyecto(id) {
+    const i = window.DATA.proyectos.findIndex(p => p.id === id);
+    if (i < 0) return false;
+    window.DATA.proyectos.splice(i, 1);
+    // Eliminar unidades asociadas
+    window.DATA.unidades = window.DATA.unidades.filter(u => u.proyecto_id !== id);
+    // Eliminar relaciones de condiciones
+    window.DATA.proyectoCondiciones = window.DATA.proyectoCondiciones.filter(pc => pc.proyecto_id !== id);
+    persist();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRUD: Unidades
+  // ---------------------------------------------------------------------------
+  function addUnidad(u) {
+    const errors = validateUnidad(u);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    const unidad = {
+      id: u.id || uid("u"),
+      external_id: u.external_id || uid("ext"),
+      proyecto_id: u.proyecto_id,
+      numero: u.numero,
+      tipo: u.tipo || "departamento",
+      tipologia: u.tipologia,
+      modelo: u.modelo || null,
+      orientacion: u.orientacion || null,
+      piso: u.piso ? Number(u.piso) : null,
+      superficie_total: u.superficie_total ? Number(u.superficie_total) : null,
+      superficie_interior: u.superficie_interior ? Number(u.superficie_interior) : null,
+      superficie_terraza: u.superficie_terraza ? Number(u.superficie_terraza) : null,
+      precio_uf: Number(u.precio_uf),
+      descuento_porcentaje: u.descuento_porcentaje ? Number(u.descuento_porcentaje) : null,
+      bono_pie_porcentaje: u.bono_pie_porcentaje ? Number(u.bono_pie_porcentaje) : null,
+      estacionamiento_incluido: u.estacionamiento_incluido ? Number(u.estacionamiento_incluido) : 0,
+      bodega_incluida: u.bodega_incluida ? Number(u.bodega_incluida) : 0,
+      estado: u.estado || "disponible",
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
+    window.DATA.unidades.push(unidad);
+    persist();
+    return unidad;
+  }
+
+  function updateUnidad(id, patch) {
+    const i = window.DATA.unidades.findIndex(u => u.id === id);
+    if (i < 0) throw new Error("Unidad no encontrada: " + id);
+    const oldEstado = window.DATA.unidades[i].estado;
+    const newEstado = patch.estado || oldEstado;
+    if (oldEstado !== newEstado && !isValidTransition(oldEstado, newEstado)) {
+      throw new Error(`Transición prohibida: ${oldEstado} → ${newEstado}. Ver docs/01-MODELO-DATOS.md sección 7.`);
+    }
+    window.DATA.unidades[i] = { ...window.DATA.unidades[i], ...patch, updated_at: nowIso() };
+    persist();
+    return window.DATA.unidades[i];
+  }
+
+  function deleteUnidad(id) {
+    const i = window.DATA.unidades.findIndex(u => u.id === id);
+    if (i < 0) return false;
+    window.DATA.unidades.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Condiciones (relación N:M)
+  // ---------------------------------------------------------------------------
+  function setCondicionesProyecto(proyectoId, condicionesIds, valoresMap = {}) {
+    // Reemplaza todas las condiciones del proyecto
+    window.DATA.proyectoCondiciones = window.DATA.proyectoCondiciones.filter(pc => pc.proyecto_id !== proyectoId);
+    condicionesIds.forEach(cid => {
+      window.DATA.proyectoCondiciones.push({
+        id: uid("pc"),
+        proyecto_id: proyectoId,
+        condicion_id: cid,
+        valor: valoresMap[cid] || null,
+        created_at: nowIso()
+      });
+    });
+    persist();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validaciones (parte del normalizador)
+  // ---------------------------------------------------------------------------
+  function validateProyecto(p) {
+    const errs = [];
+    if (!p.nombre || p.nombre.trim().length < 3) errs.push("nombre requerido (≥3 chars)");
+    if (!p.inmobiliaria_id) errs.push("inmobiliaria_id requerido");
+    if (!p.comuna) errs.push("comuna requerida");
+    if (!p.etapa || !["en_blanco", "en_verde", "entrega_inmediata"].includes(p.etapa))
+      errs.push("etapa inválida");
+    if (!p.anio_entrega || p.anio_entrega < 2020 || p.anio_entrega > 2050)
+      errs.push("anio_entrega fuera de rango");
+    const min = Number(p.precio_uf_min), max = Number(p.precio_uf_max);
+    if (!min || min <= 0 || min > 100000) errs.push("precio_uf_min fuera de rango (0-100.000)");
+    if (!max || max <= 0 || max > 100000) errs.push("precio_uf_max fuera de rango");
+    if (min > max) errs.push("precio_uf_min > precio_uf_max");
+    if (p.gps_lat && (p.gps_lat < -56 || p.gps_lat > -17))
+      errs.push("gps_lat fuera de territorio chileno");
+    if (p.gps_lon && (p.gps_lon < -76 || p.gps_lon > -66))
+      errs.push("gps_lon fuera de territorio chileno");
+    return errs;
+  }
+
+  function validateUnidad(u) {
+    const errs = [];
+    if (!u.proyecto_id) errs.push("proyecto_id requerido");
+    if (!u.numero) errs.push("numero requerido");
+    const tipologiasValidas = ["studio", "1d1b", "2d1b", "2d2b", "3d2b", "3d3b", "4d3b", "local", "oficina", "bodega", "estacionamiento"];
+    if (!u.tipologia || !tipologiasValidas.includes(u.tipologia))
+      errs.push("tipologia inválida");
+    const tiposValidos = ["departamento", "local", "oficina", "bodega", "estacionamiento"];
+    if (u.tipo && !tiposValidos.includes(u.tipo)) errs.push("tipo inválido");
+    const estadosValidos = ["disponible", "reservada", "vendida", "bloqueada"];
+    if (u.estado && !estadosValidos.includes(u.estado)) errs.push("estado inválido");
+    const precio = Number(u.precio_uf);
+    if (!precio || precio <= 0 || precio > 100000) errs.push("precio_uf fuera de rango");
+    return errs;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Transiciones de estado de Unidad — docs/01-MODELO-DATOS.md sección 7.2
+  // Versión simplificada por instrucción CEO 2026-05-05:
+  //   disponible ↔ bloqueada
+  //   disponible → reservada → vendida
+  //   bloqueada → vendida ⛔ (debe pasar por disponible)
+  // ---------------------------------------------------------------------------
+  const TRANSITIONS = {
+    disponible: ["reservada", "bloqueada"],
+    reservada:  ["vendida", "disponible"],
+    bloqueada:  ["disponible"],
+    vendida:    [] // estado terminal
+  };
+
+  function isValidTransition(from, to) {
+    return (TRANSITIONS[from] || []).includes(to);
+  }
+
+  // ---------------------------------------------------------------------------
+  // INGESTA — Patrón Adaptador + Normalizador
+  // docs/02-INGESTA.md
+  // ---------------------------------------------------------------------------
+
+  // Adaptador base: contrato común
+  // - fetch_raw_stock() → ProyectoCrudo[]
+  // - health_check() → boolean
+  const Adapters = {
+    /**
+     * Adaptador "mock": genera datos sintéticos. Para validación end-to-end del pattern.
+     */
+    mock: {
+      name: "mock-generator",
+      health_check: () => true,
+      fetch_raw_stock: (config = {}) => {
+        const cantidad = config.cantidad || 1;
+        const inmobiliariaId = config.inmobiliaria_id;
+        const inm = window.DATA.inmobiliarias.find(i => i.id === inmobiliariaId);
+        if (!inm) throw new Error("Inmobiliaria no existe: " + inmobiliariaId);
+
+        const comunas = ["Las Condes", "Vitacura", "Providencia", "Ñuñoa", "Macul", "La Florida"];
+        const tipologias = ["1d1b", "2d1b", "2d2b", "3d2b"];
+        const out = [];
+        for (let i = 0; i < cantidad; i++) {
+          const comuna = comunas[Math.floor(Math.random() * comunas.length)];
+          const minUf = 2500 + Math.floor(Math.random() * 5000);
+          const projExtId = "MOCK-" + Date.now() + "-" + i;
+          out.push({
+            // Estructura cruda — el normalizador la convierte
+            __raw: true,
+            external_id: projExtId,
+            inmobiliaria_id: inmobiliariaId,
+            nombre: `Proyecto Mock ${inm.nombre_publico} ${i + 1}`,
+            comuna: comuna,
+            region: "Metropolitana",
+            direccion: `Calle Ejemplo ${100 + i * 10}`,
+            etapa: Math.random() > 0.5 ? "en_verde" : "entrega_inmediata",
+            anio_entrega: 2026 + Math.floor(Math.random() * 3),
+            precio_uf_min: minUf,
+            precio_uf_max: minUf + 1500,
+            pie_porcentaje: 20,
+            tipologias_disponibles: tipologias.slice(0, 2 + Math.floor(Math.random() * 2)),
+            descripcion: "Proyecto generado por adaptador mock. Solo para validar el flujo.",
+            unidades_crudas: Array.from({ length: 3 }, (_, j) => ({
+              external_id: projExtId + "-U" + (j + 1),
+              numero: String(101 + j * 100),
+              tipologia: tipologias[j % tipologias.length],
+              piso: 1 + j,
+              superficie_total: 45 + j * 10,
+              precio_uf: minUf + j * 200,
+              estado: "disponible"
+            }))
+          });
+        }
+        return out;
+      }
+    },
+
+    /**
+     * Adaptador "json-paste": el usuario pega un JSON con el array de proyectos crudos.
+     */
+    "json-paste": {
+      name: "json-paste",
+      health_check: () => true,
+      fetch_raw_stock: (config = {}) => {
+        if (!config.json) throw new Error("Falta config.json (string)");
+        let parsed;
+        try { parsed = JSON.parse(config.json); }
+        catch (e) { throw new Error("JSON inválido: " + e.message); }
+        if (!Array.isArray(parsed)) throw new Error("Esperaba un array de proyectos crudos");
+        return parsed.map(p => ({ ...p, __raw: true, inmobiliaria_id: p.inmobiliaria_id || config.inmobiliaria_id }));
+      }
+    }
+  };
+
+  /**
+   * Normalizador: traduce ProyectoCrudo → Proyecto + Unidades, validando.
+   * Hace upsert por (inmobiliaria_id, external_id) para Proyecto
+   *           y por (proyecto_id, external_id) para Unidad.
+   */
+  function normalizar(crudo) {
+    if (!crudo.inmobiliaria_id) throw new Error("inmobiliaria_id requerido en crudo");
+    if (!crudo.external_id) throw new Error("external_id requerido en crudo");
+
+    const proyectoData = {
+      external_id: crudo.external_id,
+      inmobiliaria_id: crudo.inmobiliaria_id,
+      slug: crudo.slug || slugify(crudo.nombre + "-" + crudo.external_id),
+      nombre: crudo.nombre,
+      region: crudo.region || "Metropolitana",
+      comuna: crudo.comuna,
+      direccion: crudo.direccion || "",
+      etapa: crudo.etapa,
+      fecha_entrega: crudo.fecha_entrega,
+      anio_entrega: Number(crudo.anio_entrega),
+      precio_uf_min: Number(crudo.precio_uf_min),
+      precio_uf_max: Number(crudo.precio_uf_max),
+      pie_porcentaje: crudo.pie_porcentaje,
+      tipologias_disponibles: crudo.tipologias_disponibles || [],
+      descripcion: crudo.descripcion || "",
+      imagen_portada: crudo.imagen_portada,
+      estado_negocio: "activo",
+      estado_ingesta: "ok",
+      ultima_ingesta_ok: nowIso(),
+      destacado: false
+    };
+
+    const errors = validateProyecto(proyectoData);
+    if (errors.length > 0) throw new Error("Validación proyecto: " + errors.join("; "));
+
+    return {
+      proyecto: proyectoData,
+      unidades: (crudo.unidades_crudas || []).map(uc => ({
+        external_id: uc.external_id,
+        numero: uc.numero,
+        tipo: uc.tipo || "departamento",
+        tipologia: uc.tipologia,
+        piso: uc.piso,
+        orientacion: uc.orientacion,
+        superficie_total: uc.superficie_total,
+        superficie_interior: uc.superficie_interior,
+        superficie_terraza: uc.superficie_terraza,
+        precio_uf: Number(uc.precio_uf),
+        estado: uc.estado || "disponible"
+      }))
+    };
+  }
+
+  /**
+   * Sync: corre un adaptador y aplica los resultados al catálogo.
+   * Hace upsert (no duplica si external_id ya existe).
+   */
+  function runIngesta(adapterName, config = {}) {
+    const adapter = Adapters[adapterName];
+    if (!adapter) throw new Error("Adaptador no existe: " + adapterName);
+
+    const start = Date.now();
+    const result = {
+      adapter: adapterName,
+      modo: config.modo || "manual",
+      proyectos_recibidos: 0,
+      proyectos_creados: 0,
+      proyectos_actualizados: 0,
+      proyectos_invalidados: 0,
+      unidades_recibidas: 0,
+      unidades_creadas: 0,
+      unidades_actualizadas: 0,
+      errores: [],
+      status: "success"
+    };
+
+    try {
+      if (!adapter.health_check()) {
+        result.status = "failed";
+        result.errores.push({ tipo: "health_check", msg: "Health check failed" });
+        addAuditEntry({ ...result, duracion_ms: Date.now() - start });
+        return result;
+      }
+
+      const crudos = adapter.fetch_raw_stock(config);
+      result.proyectos_recibidos = crudos.length;
+
+      for (const crudo of crudos) {
+        try {
+          const { proyecto, unidades } = normalizar(crudo);
+          result.unidades_recibidas += unidades.length;
+
+          // Upsert proyecto por (inmobiliaria_id, external_id)
+          const existing = window.DATA.proyectos.find(
+            p => p.inmobiliaria_id === proyecto.inmobiliaria_id && p.external_id === proyecto.external_id
+          );
+
+          let proyectoId;
+          if (existing) {
+            updateProyecto(existing.id, proyecto);
+            proyectoId = existing.id;
+            result.proyectos_actualizados++;
+          } else {
+            const created = addProyecto(proyecto);
+            proyectoId = created.id;
+            result.proyectos_creados++;
+          }
+
+          // Upsert unidades por (proyecto_id, external_id)
+          for (const uData of unidades) {
+            const existingU = window.DATA.unidades.find(
+              u => u.proyecto_id === proyectoId && u.external_id === uData.external_id
+            );
+            if (existingU) {
+              updateUnidad(existingU.id, uData);
+              result.unidades_actualizadas++;
+            } else {
+              addUnidad({ ...uData, proyecto_id: proyectoId });
+              result.unidades_creadas++;
+            }
+          }
+        } catch (e) {
+          result.proyectos_invalidados++;
+          result.errores.push({
+            external_id: crudo.external_id || "?",
+            msg: e.message
+          });
+        }
+      }
+
+      if (result.proyectos_invalidados > 0 && result.proyectos_creados + result.proyectos_actualizados === 0) {
+        result.status = "failed";
+      } else if (result.proyectos_invalidados > 0) {
+        result.status = "partial";
+      }
+    } catch (e) {
+      result.status = "failed";
+      result.errores.push({ tipo: "fatal", msg: e.message });
+    }
+
+    result.duracion_ms = Date.now() - start;
+    addAuditEntry(result);
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+  function slugify(s) {
+    return (s || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .substring(0, 80);
+  }
+
+  function reset() {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(AUDIT_KEY);
+    location.reload();
+  }
+
+  function exportData() {
+    return JSON.stringify(window.DATA, null, 2);
+  }
+
+  function importData(json) {
+    const parsed = typeof json === "string" ? JSON.parse(json) : json;
+    if (!parsed.proyectos || !parsed.unidades) throw new Error("Estructura inválida");
+    window.DATA = parsed;
+    persist();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Inicialización + API pública
+  // ---------------------------------------------------------------------------
+  const source = hydrate();
+  window.Marketplace = {
+    source, // 'localStorage' o 'seeds'
+    addProyecto, updateProyecto, deleteProyecto,
+    addUnidad, updateUnidad, deleteUnidad,
+    setCondicionesProyecto,
+    isValidTransition, TRANSITIONS,
+    validateProyecto, validateUnidad,
+    runIngesta, normalizar, Adapters,
+    getAuditLog, clearAuditLog,
+    reset, exportData, importData,
+    persist, slugify
+  };
+})();

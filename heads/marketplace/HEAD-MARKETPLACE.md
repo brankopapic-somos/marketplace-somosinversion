@@ -2,9 +2,176 @@
 
 > Memoria operativa de la célula. Redactada desde cero. NO hereda nada del ecosistema origen.
 
-**Última actualización:** 2026-05-05
+**Última actualización:** 2026-05-06
 **Owner:** Head Marketplace (`<<OWNER_NOMBRE>>`)
-**Estado:** MVP estático navegable funcionando
+**Estado:** MVP navegable + admin UI + ingesta scaffolding funcionando
+
+---
+
+## Cómo cargar datos al marketplace
+
+Tres caminos disponibles según el caso de uso:
+
+### 1A. Edición directa de `seeds.js` (manual, vía git)
+
+Para agregar un proyecto editando código:
+
+1. Abrir `heads/marketplace/code/data/seeds.js`
+2. Agregar un objeto al array `proyectos: [...]` con la siguiente estructura mínima:
+
+   ```js
+   {
+     id: "p-007",
+     external_id: "DEMO-2027-001",
+     inmobiliaria_id: "im-001",                    // de DATA.inmobiliarias
+     slug: "edificio-demo",                         // URL-safe, único
+     nombre: "Edificio Demo",
+     region: "Metropolitana",
+     comuna: "Las Condes",
+     direccion: "Av. Demo 100",
+     etapa: "en_verde",                             // en_blanco | en_verde | entrega_inmediata
+     fecha_entrega: "2027-06-30",
+     anio_entrega: 2027,
+     precio_uf_min: 3500,
+     precio_uf_max: 5500,
+     pie_porcentaje: 20,
+     tipologias_disponibles: ["1d1b", "2d2b"],
+     estado_negocio: "activo",                      // activo | agotado | pausado
+     estado_ingesta: "ok",                          // ok | timeout | error
+     ultima_ingesta_ok: "2026-05-06T10:00:00Z",
+     destacado: false,
+     imagen_portada: "https://placehold.co/800x500/?text=Demo",
+     created_at: "2026-05-06T10:00:00Z",
+     updated_at: "2026-05-06T10:00:00Z"
+   }
+   ```
+
+3. Agregar las unidades del proyecto al array `unidades: [...]`:
+
+   ```js
+   {
+     id: "u-031",
+     external_id: "DEMO-2027-001-U1",
+     proyecto_id: "p-007",
+     numero: "0501",
+     tipo: "departamento",
+     tipologia: "1d1b",
+     piso: 5,
+     superficie_total: 45,
+     precio_uf: 3500,
+     estado: "disponible"
+   }
+   ```
+
+4. (Opcional) Agregar relaciones de condiciones comerciales en `proyectoCondiciones: [...]`:
+
+   ```js
+   { id: "pc-014", proyecto_id: "p-007", condicion_id: "cc-01", valor: "5%" }
+   ```
+
+5. Commit + push:
+   ```bash
+   git add heads/marketplace/code/data/seeds.js
+   git commit -m "feat: agregar proyecto Edificio Demo"
+   git push
+   ```
+
+6. Refrescar GitHub Pages (se reflejan los cambios en ~30 segundos).
+
+> **Cuándo usar:** seed inicial, casos de prueba, datos curados manualmente.
+> **NO usar para:** stock real recibido de inmobiliarias (usar 1B o 1C).
+
+### 1B. Admin UI con formularios (interactivo, vía localStorage)
+
+Abrir `admin.html` (link "Admin" en topbar del catálogo). Tabs disponibles:
+
+| Tab | Función |
+|---|---|
+| **Dashboard** | Métricas globales: counts por estado, errores, ingestas |
+| **Proyectos** | CRUD completo — crear, editar, eliminar proyectos |
+| **Unidades** | CRUD de unidades, con validación de transiciones de estado |
+| **Condiciones** | Asignar tags comerciales por proyecto (tabla relacional `ProyectoCondicion`) con valor opcional |
+| **Ingesta** | Correr adaptadores (mock generator, JSON paste) — ver 1C |
+| **Auditoría** | Historial completo de ingestas con métricas de duración y errores |
+| **Datos** | Exportar JSON, importar JSON, reset a seeds |
+
+**Persistencia:** todas las modificaciones se guardan en `localStorage` del navegador. El catálogo (`index.html`) las refleja automáticamente. Para distribuirlas a otros usuarios o dispositivos: usar la pestaña Datos → Exportar JSON, y luego importarlo donde sea necesario, o (mejor) editar `seeds.js` con los datos validados y commitearlos.
+
+> **Cuándo usar:** prototipado, testing de UX, demos.
+> **NO usar para:** datos productivos (localStorage es local al navegador, no se sincroniza).
+
+### 1C. Ingesta vía adaptadores (escalable, conforme a `02-INGESTA.md`)
+
+El sistema implementa el patrón adaptador + normalizador. Adaptadores disponibles en el MVP:
+
+| Adaptador | Tipo | Uso |
+|---|---|---|
+| `mock` | Generador sintético | Crea N proyectos con datos aleatorios. Validar el pipeline end-to-end. |
+| `json-paste` | Pegado manual | Recibe un JSON con array de proyectos crudos. Útil para testing con datos reales. |
+
+**Adaptadores planeados (Fase 2, requieren backend Next.js):**
+
+- `api-rest` — fetch de endpoint REST con auth
+- `google-sheets` — lectura vía Google Sheets API
+- `csv-upload` — upload de archivo CSV/Excel parseado en cliente
+- `webhook` — endpoint receptor de cambios
+
+**Flujo de ingesta:**
+
+1. Admin → Tab "Ingesta"
+2. Seleccionar adaptador
+3. Seleccionar inmobiliaria destino
+4. Configurar (cantidad para mock, JSON para json-paste)
+5. Click "Correr ingesta"
+6. El normalizador valida cada proyecto/unidad y hace upsert por `(inmobiliaria_id, external_id)`
+7. Resultado se loguea en Auditoría con métricas: recibidos / creados / actualizados / inválidos / duración
+8. Errores de validación se exhiben sin abortar el resto del batch
+
+**Schema de proyecto crudo para `json-paste`:**
+
+```json
+[
+  {
+    "external_id": "AURO-2027-DEMO-01",
+    "nombre": "Edificio Demo Norte",
+    "comuna": "Las Condes",
+    "region": "Metropolitana",
+    "direccion": "Av. Demo 200",
+    "etapa": "en_verde",
+    "fecha_entrega": "2027-09-01",
+    "anio_entrega": 2027,
+    "precio_uf_min": 4000,
+    "precio_uf_max": 6500,
+    "pie_porcentaje": 20,
+    "tipologias_disponibles": ["1d1b", "2d2b"],
+    "descripcion": "...",
+    "imagen_portada": "https://...",
+    "unidades_crudas": [
+      {
+        "external_id": "AURO-2027-DEMO-01-U1",
+        "numero": "0501",
+        "tipologia": "1d1b",
+        "piso": 5,
+        "superficie_total": 45,
+        "precio_uf": 4000,
+        "estado": "disponible"
+      }
+    ]
+  }
+]
+```
+
+> **Cuándo usar:** simular cómo entran datos productivos. Plantilla para construir adaptadores reales en Fase 2.
+
+### Decisión de canal por inmobiliaria
+
+| Inmobiliaria | Adaptador en MVP | Adaptador productivo (Fase 2) |
+|---|---|---|
+| `<<INMOBILIARIA_1_NOMBRE>>` | `<<INMOBILIARIA_1_FUENTE>>` (placeholder) | A definir según fuente real |
+| `<<INMOBILIARIA_2_NOMBRE>>` | `<<INMOBILIARIA_2_FUENTE>>` | idem |
+| `<<INMOBILIARIA_3_NOMBRE>>` | `<<INMOBILIARIA_3_FUENTE>>` | idem |
+
+Bloqueado por `<<INMOBILIARIA_X_*>>` sin resolver.
 
 ---
 
@@ -96,6 +263,10 @@ Abrir directamente `heads/marketplace/code/index.html` en el navegador (Chrome, 
 | D-004 | `CondicionComercial` modelado como tablas relacionales (`CondicionComercial` + `ProyectoCondicion`) | Decisión CEO sesión 2026-04-30; extensibilidad y soporte de campo `valor`. |
 | D-005 | Transición `bloqueada` simplificada para MVP: `disponible ↔ bloqueada` y `bloqueada → vendida` no permitida sin pasar por `disponible` | Especificación CEO sesión 2026-05-05. |
 | D-006 | UF referencial hardcoded en seeds.js como fallback | Sin red en MVP estático; al migrar a Next se proxea `mindicador.cl/api/uf`. |
+| D-007 | Persistencia de cambios admin en `localStorage` (no en `seeds.js`) | Permite probar el flujo sin tocar código fuente. Datos validados pasan a seeds.js vía import/export manual. |
+| D-008 | Patrón adaptador implementado en JS vanilla, no diferido a Next | Validar arquitectura conforme `docs/02-INGESTA.md` ya en MVP. Migración a TS conserva la interfaz `fetch_raw_stock` + `health_check`. |
+| D-009 | Audit log de ingestas en `localStorage` (key `marketplace.audit.v1`) | Tabla en código real; localStorage es suficiente para validación. Límite: últimas 100 entradas. |
+| D-010 | `<<NOMBRE_REPO_CELULA>>` resuelto a `marketplace-somosinversion` por decisión CEO 2026-05-06 | Repo público en `https://github.com/brankopapic-somos/marketplace-somosinversion` |
 
 ---
 

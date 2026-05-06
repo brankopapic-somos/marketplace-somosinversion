@@ -318,8 +318,9 @@
       Catálogo Marketplace
       <small>MVP — Célula Experimental</small>
     </div>
-    <nav>
+    <nav style="display:flex;gap:18px;">
       <a href="#/">Catálogo</a>
+      <a href="admin.html">Admin</a>
     </nav>
   </header>
 
@@ -331,6 +332,7 @@
 </div>
 
 <script src="data/seeds.js"></script>
+<script src="data/repo.js"></script>
 <script>
 // =============================================================================
 // REPOSITORIO en memoria (simula DB + queries)
@@ -817,6 +819,10 @@ function router() {
 }
 
 window.addEventListener('hashchange', router);
+window.addEventListener('storage', e => {
+  // Otra pestaña (admin) modificó localStorage → recargar para ver cambios
+  if (e.key && e.key.startsWith('marketplace.')) location.reload();
+});
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('uf-ref').textContent = fmtClp(DATA.ufReferencia.valor_clp);
   router();
