@@ -127,6 +127,25 @@
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 20px;
   }
+  /* Agrupado por inmobiliaria */
+  .group-section { margin-bottom: 32px; }
+  .group-header {
+    display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap;
+    gap: 12px; margin-bottom: 16px; padding-bottom: 12px;
+    border-bottom: 2px solid #e2e6ee;
+  }
+  .group-header-left { display: flex; align-items: center; gap: 14px; }
+  .group-logo {
+    width: 48px; height: 48px; border-radius: 8px; object-fit: contain;
+    background: #f3f4f6; padding: 4px; flex-shrink: 0;
+  }
+  .group-title {
+    font-size: 20px; font-weight: 700; color: #1e293b; margin: 0;
+  }
+  .group-desc {
+    font-size: 13px; color: #6b7280; margin: 2px 0 0; line-height: 1.4;
+  }
+  .group-meta { font-size: 13px; color: #6b7280; }
   .card {
     background: #fff;
     border: 1px solid #e2e6ee;
@@ -409,8 +428,10 @@ const state = {
     precioUfMax: null,
     anioEntrega: '',
     soloDisponibles: true,
-    condiciones: new Set()
-  }
+    condiciones: new Set(),
+    inmobiliarias: new Set() // multi-select
+  },
+  agruparPorInmobiliaria: false
 };
 
 function aplicarFiltros() {
@@ -423,6 +444,7 @@ function aplicarFiltros() {
     } else if (!f.soloDisponibles && p.estado_ingesta !== 'ok') {
       return false;
     }
+    if (f.inmobiliarias.size > 0 && !f.inmobiliarias.has(p.inmobiliaria_id)) return false;
     if (f.comuna && p.comuna !== f.comuna) return false;
     if (f.tipoEntrega && tipoEntrega(p) !== f.tipoEntrega) return false;
     if (f.tipologia && !p.tipologias_disponibles.includes(f.tipologia)) return false;
@@ -460,6 +482,21 @@ function renderCatalog() {
     <div class="layout-catalog">
       <aside class="filters">
         <h3>Filtros <button id="reset-filters">Limpiar</button></h3>
+
+        <div class="filter-group">
+          <label>Inmobiliaria</label>
+          <div class="checkbox-list">
+            ${Repo.inmobiliarias().filter(i => i.activa).map(i => {
+              const count = Repo.proyectos().filter(p => p.inmobiliaria_id === i.id).length;
+              return `
+                <label>
+                  <input type="checkbox" data-inmob="${i.id}" ${state.filters.inmobiliarias.has(i.id)?'checked':''}>
+                  ${i.nombre_publico} <span style="color:#9ca3af;font-size:11px;">(${count})</span>
+                </label>
+              `;
+            }).join('')}
+          </div>
+        </div>
 
         <div class="filter-group">
           <label>Comuna</label>
@@ -523,8 +560,12 @@ function renderCatalog() {
       </aside>
 
       <section>
-        <div class="results-header">
+        <div class="results-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
           <div class="results-count"><strong>${proyectos.length}</strong> resultado${proyectos.length !== 1 ? 's' : ''}</div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;cursor:pointer;">
+            <input type="checkbox" id="toggle-agrupar" ${state.agruparPorInmobiliaria?'checked':''}>
+            Agrupar por inmobiliaria
+          </label>
         </div>
 
         ${proyectos.length === 0 ? `
@@ -532,7 +573,7 @@ function renderCatalog() {
             <h3>Sin resultados</h3>
             <p>Probá ajustar los filtros para ver más proyectos.</p>
           </div>
-        ` : `
+        ` : state.agruparPorInmobiliaria ? renderGroupedByInmobiliaria(proyectos) : `
           <div class="grid">
             ${proyectos.map(p => renderCard(p)).join('')}
           </div>
@@ -557,8 +598,17 @@ function renderCatalog() {
       onChange();
     });
   });
+  document.querySelectorAll('[data-inmob]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      if (e.target.checked) state.filters.inmobiliarias.add(e.target.dataset.inmob);
+      else state.filters.inmobiliarias.delete(e.target.dataset.inmob);
+      onChange();
+    });
+  });
+  const toggleAg = document.getElementById('toggle-agrupar');
+  if (toggleAg) toggleAg.addEventListener('change', e => { state.agruparPorInmobiliaria = e.target.checked; onChange(); });
   document.getElementById('reset-filters').addEventListener('click', () => {
-    state.filters = { comuna: '', tipoEntrega: '', tipologia: '', precioUfMin: null, precioUfMax: null, anioEntrega: '', soloDisponibles: true, condiciones: new Set() };
+    state.filters = { comuna: '', tipoEntrega: '', tipologia: '', precioUfMin: null, precioUfMax: null, anioEntrega: '', soloDisponibles: true, condiciones: new Set(), inmobiliarias: new Set() };
     onChange();
   });
 
@@ -566,6 +616,41 @@ function renderCatalog() {
   document.querySelectorAll('[data-slug]').forEach(el => {
     el.addEventListener('click', () => { window.location.hash = `/proyecto/${el.dataset.slug}`; });
   });
+}
+
+function renderGroupedByInmobiliaria(proyectos) {
+  // Agrupar por inmobiliaria_id
+  const groups = new Map();
+  for (const p of proyectos) {
+    if (!groups.has(p.inmobiliaria_id)) groups.set(p.inmobiliaria_id, []);
+    groups.get(p.inmobiliaria_id).push(p);
+  }
+  // Orden: por nombre de inmobiliaria
+  const ordered = Array.from(groups.entries())
+    .map(([id, projs]) => ({ inm: Repo.inmobiliariaById(id), projs }))
+    .filter(g => g.inm)
+    .sort((a, b) => a.inm.nombre_publico.localeCompare(b.inm.nombre_publico));
+
+  return ordered.map(({ inm, projs }) => `
+    <div class="group-section">
+      <div class="group-header">
+        <div class="group-header-left">
+          ${inm.logo_url ? `<img src="${inm.logo_url}" alt="${inm.nombre_publico}" class="group-logo">` : ''}
+          <div>
+            <h2 class="group-title">${inm.nombre_publico}</h2>
+            ${inm.descripcion ? `<p class="group-desc">${inm.descripcion}</p>` : ''}
+          </div>
+        </div>
+        <div class="group-meta">
+          <strong>${projs.length}</strong> proyecto${projs.length !== 1 ? 's' : ''}
+          ${inm.sitio_web ? ` · <a href="${inm.sitio_web}" target="_blank" rel="noopener" style="color:#2563eb;">${inm.sitio_web.replace(/^https?:\/\//, '').slice(0, 30)}</a>` : ''}
+        </div>
+      </div>
+      <div class="grid">
+        ${projs.map(p => renderCard(p)).join('')}
+      </div>
+    </div>
+  `).join('');
 }
 
 function renderCard(p) {

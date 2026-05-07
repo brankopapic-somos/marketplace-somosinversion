@@ -123,6 +123,7 @@
 
   <div class="tabs" id="tabs">
     <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="inmobiliarias">Inmobiliarias</button>
     <button data-tab="proyectos">Proyectos</button>
     <button data-tab="unidades">Unidades</button>
     <button data-tab="condiciones">Condiciones</button>
@@ -201,7 +202,7 @@ function render() {
     });
   }
 
-  const renderers = { dashboard, proyectos, unidades, condiciones, ingesta, auditoria, datos };
+  const renderers = { dashboard, inmobiliarias, proyectos, unidades, condiciones, ingesta, auditoria, datos };
   renderers[activeTab]();
 }
 
@@ -230,6 +231,7 @@ function dashboard() {
       <h2>¿Cómo cargar datos al marketplace?</h2>
       <p style="color:#4b5563;margin-bottom:14px;">Tres caminos disponibles:</p>
       <ol style="padding-left:20px;line-height:1.8;color:#374151;">
+        <li><strong>Onboarding de inmobiliaria</strong> → pestaña <a href="#" data-go="inmobiliarias" style="color:#2563eb;">Inmobiliarias</a>: alta de la empresa partner antes de cargar sus proyectos.</li>
         <li><strong>Manual (más control)</strong> → pestaña <a href="#" data-go="proyectos" style="color:#2563eb;">Proyectos</a> y <a href="#" data-go="unidades" style="color:#2563eb;">Unidades</a>: formularios para crear/editar/eliminar.</li>
         <li><strong>Ingesta por adaptador (escalable)</strong> → pestaña <a href="#" data-go="ingesta" style="color:#2563eb;">Ingesta</a>: corre un adaptador (mock generator, JSON paste) que normaliza y persiste.</li>
         <li><strong>Editar directo en código</strong> → editar <code>data/seeds.js</code>, commit + push. Ver <code>HEAD-MARKETPLACE.md</code> sección 1A.</li>
@@ -241,6 +243,122 @@ function dashboard() {
       e.preventDefault();
       document.querySelector(`#tabs button[data-tab="${a.dataset.go}"]`).click();
     });
+  });
+}
+
+// =============================================================================
+// INMOBILIARIAS — CRUD
+// =============================================================================
+function inmobiliarias() {
+  const D = window.DATA;
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Inmobiliarias (${D.inmobiliarias.length})
+        <button class="btn btn-primary" id="btn-add-inmob">+ Nueva inmobiliaria</button>
+      </h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:16px;">Empresas desarrolladoras asociadas. Cada proyecto se vincula a una. Eliminar una inmobiliaria <strong>elimina en cascada</strong> todos sus proyectos y unidades.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Logo</th><th>Nombre</th><th>Slug</th><th>Sitio web</th>
+            <th>Fuente stock</th><th>Activa</th><th>Proyectos</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${D.inmobiliarias.map(i => {
+            const count = window.Marketplace.countProyectosByInmobiliaria(i.id);
+            return `
+              <tr>
+                <td>${i.logo_url ? `<img src="${i.logo_url}" alt="${i.nombre_publico}" style="width:36px;height:36px;border-radius:6px;object-fit:contain;background:#f3f4f6;">` : '<span style="color:#9ca3af;font-size:11px;">sin logo</span>'}</td>
+                <td><strong>${i.nombre_publico}</strong>${i.descripcion ? `<br><small style="color:#6b7280;">${i.descripcion}</small>` : ''}</td>
+                <td><code>${i.slug}</code></td>
+                <td>${i.sitio_web ? `<a href="${i.sitio_web}" target="_blank" style="color:#2563eb;font-size:12px;">${i.sitio_web.replace(/^https?:\/\//, '').slice(0, 30)}</a>` : '—'}</td>
+                <td><code style="font-size:11px;">${i.fuente_stock_tipo || 'manual'}</code></td>
+                <td>${i.activa ? '<span class="badge badge-green">Sí</span>' : '<span class="badge badge-gray">No</span>'}</td>
+                <td><strong>${count}</strong></td>
+                <td class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-edit-i="${i.id}">Editar</button>
+                  <button class="btn btn-danger btn-sm" data-del-i="${i.id}" title="${count > 0 ? 'Eliminar borra ' + count + ' proyecto(s)' : ''}">×</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-add-inmob').addEventListener('click', () => inmobiliariaForm(null));
+  document.querySelectorAll('[data-edit-i]').forEach(b => b.addEventListener('click', () => inmobiliariaForm(b.dataset.editI)));
+  document.querySelectorAll('[data-del-i]').forEach(b => b.addEventListener('click', () => {
+    const inm = D.inmobiliarias.find(x => x.id === b.dataset.delI);
+    const count = window.Marketplace.countProyectosByInmobiliaria(inm.id);
+    const confirmMsg = count > 0
+      ? `¿Eliminar "${inm.nombre_publico}"?\n\n⚠ Esto borrará ${count} proyecto(s) y todas sus unidades en cascada. Esta acción es irreversible.`
+      : `¿Eliminar "${inm.nombre_publico}"?`;
+    if (confirm(confirmMsg)) {
+      window.Marketplace.deleteInmobiliaria(b.dataset.delI);
+      toast('Inmobiliaria eliminada');
+      inmobiliarias();
+    }
+  }));
+}
+
+function inmobiliariaForm(id) {
+  const D = window.DATA;
+  const inm = id ? D.inmobiliarias.find(x => x.id === id) : {};
+  const isEdit = !!id;
+  const html = `
+    <h2>${isEdit ? 'Editar' : 'Nueva'} inmobiliaria</h2>
+    <form id="form-inmob">
+      <div class="form-grid">
+        <div class="field full"><label>Nombre público *</label><input name="nombre_publico" value="${inm.nombre_publico || ''}" required></div>
+        <div class="field"><label>Slug</label><input name="slug" value="${inm.slug || ''}" placeholder="auto si vacío" pattern="[a-z0-9-]+"></div>
+        <div class="field"><label>Sitio web</label><input type="url" name="sitio_web" value="${inm.sitio_web || ''}" placeholder="https://..."></div>
+        <div class="field full"><label>Logo URL</label><input name="logo_url" value="${inm.logo_url || ''}" placeholder="https://placehold.co/100x100/?text=Logo"></div>
+        <div class="field full"><label>Descripción</label><textarea name="descripcion">${inm.descripcion || ''}</textarea></div>
+        <div class="field"><label>Fuente de stock</label>
+          <select name="fuente_stock_tipo">
+            ${['manual', 'api', 'csv', 'sheets', 'scraping'].map(t => `<option value="${t}" ${inm.fuente_stock_tipo === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Activa</label>
+          <select name="activa">
+            <option value="true" ${inm.activa !== false ? 'selected' : ''}>Sí</option>
+            <option value="false" ${inm.activa === false ? 'selected' : ''}>No</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e6ee;">
+        <h3 style="font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">Datos privados (no expuestos al frontend público)</h3>
+        <div class="form-grid">
+          <div class="field"><label>Comisión %</label><input type="number" name="comision_porcentaje" value="${inm.comision_porcentaje ?? ''}" min="0" max="100" step="0.1"></div>
+          <div class="field full"><label>Contacto comercial</label><input name="contacto_comercial" value="${inm.contacto_comercial || ''}" placeholder="Persona, teléfono, email del contacto"></div>
+          <div class="field full"><label>Condiciones del acuerdo</label><textarea name="condiciones_acuerdo">${inm.condiciones_acuerdo || ''}</textarea></div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar cambios' : 'Crear inmobiliaria'}</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-inmob').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.activa = data.activa === 'true';
+    if (!data.slug) delete data.slug; // auto-generar
+    try {
+      if (isEdit) window.Marketplace.updateInmobiliaria(id, data);
+      else window.Marketplace.addInmobiliaria(data);
+      modal.remove();
+      toast(isEdit ? 'Inmobiliaria actualizada' : 'Inmobiliaria creada');
+      inmobiliarias();
+    } catch (err) { toast(err.message, 'error'); }
   });
 }
 

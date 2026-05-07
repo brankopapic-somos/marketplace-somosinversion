@@ -72,6 +72,84 @@
   }
 
   // ---------------------------------------------------------------------------
+  // CRUD: Inmobiliarias
+  // ---------------------------------------------------------------------------
+  function validateInmobiliaria(i) {
+    const errs = [];
+    if (!i.nombre_publico || i.nombre_publico.trim().length < 3)
+      errs.push("nombre_publico requerido (≥3 chars)");
+    const slug = i.slug || slugify(i.nombre_publico);
+    if (!slug || !/^[a-z0-9-]+$/.test(slug))
+      errs.push("slug inválido (solo a-z, 0-9, -)");
+    const tiposFuente = ["api", "csv", "sheets", "scraping", "manual"];
+    if (i.fuente_stock_tipo && !tiposFuente.includes(i.fuente_stock_tipo))
+      errs.push("fuente_stock_tipo inválido");
+    return errs;
+  }
+
+  function addInmobiliaria(i) {
+    const errors = validateInmobiliaria(i);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    const slug = i.slug || slugify(i.nombre_publico);
+    // Slug único
+    if (window.DATA.inmobiliarias.some(x => x.slug === slug)) {
+      throw new Error("Slug ya existe: " + slug);
+    }
+    const inm = {
+      id: i.id || uid("im"),
+      slug,
+      nombre_publico: i.nombre_publico.trim(),
+      logo_url: i.logo_url || null,
+      descripcion: i.descripcion || "",
+      sitio_web: i.sitio_web || null,
+      activa: i.activa !== false,
+      // Privados (no exponer via API pública en producción)
+      comision_porcentaje: i.comision_porcentaje ? Number(i.comision_porcentaje) : null,
+      condiciones_acuerdo: i.condiciones_acuerdo || "",
+      contacto_comercial: i.contacto_comercial || "",
+      fuente_stock_tipo: i.fuente_stock_tipo || "manual",
+      fuente_stock_config: i.fuente_stock_config || {},
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
+    window.DATA.inmobiliarias.push(inm);
+    persist();
+    return inm;
+  }
+
+  function updateInmobiliaria(id, patch) {
+    const idx = window.DATA.inmobiliarias.findIndex(i => i.id === id);
+    if (idx < 0) throw new Error("Inmobiliaria no encontrada: " + id);
+    const updated = { ...window.DATA.inmobiliarias[idx], ...patch, updated_at: nowIso() };
+    const errors = validateInmobiliaria(updated);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    // Verificar slug único si cambió
+    if (patch.slug && patch.slug !== window.DATA.inmobiliarias[idx].slug) {
+      if (window.DATA.inmobiliarias.some(x => x.id !== id && x.slug === patch.slug)) {
+        throw new Error("Slug ya existe: " + patch.slug);
+      }
+    }
+    window.DATA.inmobiliarias[idx] = updated;
+    persist();
+    return updated;
+  }
+
+  function deleteInmobiliaria(id) {
+    const idx = window.DATA.inmobiliarias.findIndex(i => i.id === id);
+    if (idx < 0) return false;
+    // Cascade: eliminar proyectos + unidades + condiciones de esa inmobiliaria
+    const proyectosAfectados = window.DATA.proyectos.filter(p => p.inmobiliaria_id === id);
+    proyectosAfectados.forEach(p => deleteProyecto(p.id));
+    window.DATA.inmobiliarias.splice(idx, 1);
+    persist();
+    return true;
+  }
+
+  function countProyectosByInmobiliaria(id) {
+    return window.DATA.proyectos.filter(p => p.inmobiliaria_id === id).length;
+  }
+
+  // ---------------------------------------------------------------------------
   // CRUD: Proyectos
   // ---------------------------------------------------------------------------
   function addProyecto(p) {
@@ -521,11 +599,12 @@
   const source = hydrate();
   window.Marketplace = {
     source, // 'localStorage' o 'seeds'
+    addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad,
     setCondicionesProyecto,
     isValidTransition, TRANSITIONS,
-    validateProyecto, validateUnidad,
+    validateInmobiliaria, validateProyecto, validateUnidad,
     runIngesta, normalizar, Adapters,
     getAuditLog, clearAuditLog,
     reset, exportData, importData,
