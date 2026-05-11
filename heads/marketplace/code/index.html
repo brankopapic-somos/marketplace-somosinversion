@@ -12,9 +12,9 @@
     font-family: var(--font-sans);
     color: var(--color-text);
     background:
-      radial-gradient(at 20% 15%, rgba(6, 182, 212, 0.18) 0px, transparent 50%),
-      radial-gradient(at 80% 85%, rgba(139, 92, 246, 0.10) 0px, transparent 50%),
-      linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-strong) 50%, #060a18 100%);
+      radial-gradient(at 18% 15%, rgba(46, 204, 113, 0.16) 0px, transparent 50%),
+      radial-gradient(at 82% 85%, rgba(245, 166, 35, 0.10) 0px, transparent 50%),
+      linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-strong) 50%, #060912 100%);
     background-attachment: fixed;
     min-height: 100vh;
     display: flex;
@@ -70,10 +70,10 @@
   .features { display: flex; flex-direction: column; gap: 14px; max-width: 480px; }
   .feature { display: flex; align-items: flex-start; gap: 14px; color: #e2e8f0; }
   .feature .icn {
-    flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px;
-    background: linear-gradient(135deg, rgba(6, 182, 212, 0.18), rgba(30, 58, 138, 0.18));
-    border: 1px solid rgba(6, 182, 212, 0.30);
-    color: #67e8f9;
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(46, 204, 113, 0.16), rgba(245, 166, 35, 0.10));
+    border: 1px solid rgba(46, 204, 113, 0.32);
+    color: #2ECC71;
     display: flex; align-items: center; justify-content: center;
   }
   .feature .txt strong { color: #fff; font-weight: 600; }
@@ -193,22 +193,25 @@
   <div class="hero">
     <div class="pitch">
       <div class="brand-logo" style="margin-bottom:32px;">
-        <div class="brand-logo-mark">S</div>
+        <img src="assets/logo-icon.png" alt="Somos Inversión" class="brand-logo-img brand-logo-img-light">
         <div class="brand-logo-text">
-          <span class="brand-logo-name" style="color:#fff;font-size:18px;">Somos Inversión</span>
-          <span class="brand-logo-tagline" style="color:#94a3b8;">Marketplace inmobiliario</span>
+          <span class="brand-logo-name" style="font-size:19px;">
+            <span class="brand-logo-name-somos">Somos</span>
+            <span class="brand-logo-name-inv" style="color:#fff;">Inversión</span>
+          </span>
+          <span class="brand-logo-tagline" style="color:#94a3b8;">Marketplace · Inteligencia inmobiliaria</span>
         </div>
       </div>
       <div style="margin-bottom:18px;">
-        <span class="tech-ai-badge tech-ai-badge-dark">AI · Real Estate Tech</span>
+        <span class="tech-ai-badge tech-ai-badge-dark">Potenciado por IA</span>
       </div>
       <h1>
         <small>Plataforma para brokers en Chile</small>
-        <span class="tech-text-gradient">Catálogo inmobiliario</span><br>con inteligencia integrada
+        Invertir con <span class="tech-text-gradient">inteligencia</span>,<br>no con intuición.
       </h1>
       <p class="lead">
-        Acceso autenticado al stock de proyectos en venta, cotizador con cálculo financiero
-        en tiempo real, y panel administrativo para gestionar inmobiliarias, proyectos y unidades.
+        Acceso autenticado al catálogo de proyectos en venta, cotizador con cálculo financiero
+        en tiempo real y panel administrativo para gestionar inmobiliarias, proyectos y unidades.
       </p>
 
       <div class="features">

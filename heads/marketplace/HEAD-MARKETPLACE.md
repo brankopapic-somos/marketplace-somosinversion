@@ -273,6 +273,35 @@ Abrir directamente `heads/marketplace/code/index.html` en el navegador (Chrome, 
 
 ## Excepciones autorizadas a la doctrina
 
+### EXC-002 · Fetch del sitio del origen y descarga del logo (2026-05-11)
+
+- **Doctrina afectada:** `03-DOCTRINA-AISLAMIENTO.md` §1 "La célula NO realiza requests, NO publica metadata, NO referencia, NO redirige hacia: `<<DOMINIO_PRINCIPAL_ORIGEN>>` y todos sus subdominios"
+- **Autorizada por:** CEO en chat directo, 2026-05-11 (al proveer URL `somosinversion.cl` con instrucción explícita de replicar la estética)
+- **Motivo:** Extensión natural de EXC-001. Para aplicar la paleta real de Somos Inversión se requiere inspeccionar el sitio una vez para extraer hex codes y tipografías
+- **Alcance:** Fetch único (no recurrente) del HTML + CSS chunks de `somosinversion.cl` para extracción de design tokens. Descarga de `images/logo-icon.png` a `assets/logo-icon.png` (asset local, sin runtime coupling)
+- **Resultado de la extracción:**
+  - Paleta oficial confirmada:
+    - `#1A2744` — navy (primary/background oscuro)
+    - `#2ECC71` — emerald (accent — color del "Somos")
+    - `#F5A623` — gold (secondary, hover, highlights)
+    - `#27AE60` — emerald hover
+    - `#2D4A7A` — navy medio
+  - Fonts oficiales:
+    - **Quicksand** (display — titulares principales)
+    - **Space Grotesk** (tech — secciones técnicas, mono)
+    - **Inter** (body — texto general)
+  - Logo: PNG 500x500 descargado a `heads/marketplace/code/assets/logo-icon.png` (23 KB)
+  - Tagline brand: "Asesoría gratuita de inversión inmobiliaria potenciada por inteligencia artificial y respaldada por experiencia real"
+  - Identidad: "Somos" en verde + "Inversión" en blanco/dark
+- **Lo que NO se hizo (respeta doctrina):**
+  - NO se usa hotlink al logo de somosinversion.cl (asset descargado localmente)
+  - NO se referencia el dominio en código de runtime
+  - NO se replica funcionalidad/backend del origen
+  - NO se descarga código fuente del origen
+- **Riesgo de integración:** Cero — los tokens están en `assets/brand.css`, el logo es asset propio del repo célula. Al integrar, el design system del origen reemplaza el de la célula sin conflicto
+
+---
+
 ### EXC-001 · Uso de paleta y logo de Somos Inversión (2026-05-07)
 
 - **Doctrina afectada:** `03-DOCTRINA-AISLAMIENTO.md` §5 "La célula NO copia ni adapta assets propietarios (imágenes de proyectos, logos, fonts) del origen"

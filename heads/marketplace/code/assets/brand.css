@@ -1,22 +1,23 @@
 /* =============================================================================
-   SOMOS INVERSIÓN — Marketplace MVP · Design System v1
+   SOMOS INVERSIÓN — Marketplace MVP · Design System v2 (REAL BRAND)
    =============================================================================
-   Variables can be overridden by the actual Somos Inversión brand palette.
-   The 8 variables in :root.brand-* are the swap surface — change them and
-   the entire app rebrands. The logo SVG mark sits in .brand-logo-mark via
-   linear-gradient using the same vars.
+   Paleta oficial extraída de somosinversion.cl bajo EXC-002.
+   Fonts oficiales: Quicksand (display) · Space Grotesk (tech) · Inter (body)
    ============================================================================= */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 :root {
-  /* ---- BRAND PALETTE (placeholder hasta que CEO provea los hex oficiales) ---- */
-  --brand-primary:        #0f1e3c;  /* Navy profundo (topbar, dark surfaces) */
-  --brand-primary-strong: #0a142a;  /* Más oscuro (footer, contraste) */
-  --brand-primary-light:  #1e3a8a;  /* Variante clara (gradients) */
-  --brand-accent:         #06b6d4;  /* Cyan eléctrico (tech/AI feel) */
-  --brand-accent-strong:  #0891b2;
-  --brand-accent-soft:    #67e8f9;
-  --brand-accent-glow:    rgba(6, 182, 212, 0.28);
-  --brand-secondary:      #f59e0b;  /* Acento dorado (CTAs secundarios) */
+  /* ---- BRAND PALETTE OFICIAL Somos Inversión ---- */
+  --brand-primary:        #1A2744;  /* Navy profundo (topbar, dark surfaces) */
+  --brand-primary-strong: #0a0f1a;  /* Casi negro (deep dark) */
+  --brand-primary-light:  #2D4A7A;  /* Navy medio (gradients, hovers) */
+  --brand-accent:         #2ECC71;  /* Emerald — color del "Somos" */
+  --brand-accent-strong:  #27AE60;  /* Emerald hover */
+  --brand-accent-soft:    #d1fae5;  /* Emerald muy suave (bg badges) */
+  --brand-accent-glow:    rgba(46, 204, 113, 0.28);
+  --brand-secondary:      #F5A623;  /* Gold/naranja (CTAs hover, highlights) */
+  --brand-secondary-soft: #fef3c6;
 
   /* ---- SURFACES ---- */
   --color-bg:                #f5f7fb;
@@ -67,9 +68,11 @@
   --radius-xl:   20px;
   --radius-full: 9999px;
 
-  /* ---- TYPOGRAPHY ---- */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* ---- TYPOGRAPHY (fonts oficiales Somos Inversión) ---- */
+  --font-sans:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Quicksand", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-tech:    "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", "Space Grotesk", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* ---- MOTION ---- */
   --duration-fast:   120ms;
@@ -80,7 +83,17 @@
 }
 
 /* =============================================================================
-   LOGO COMPONENT
+   LOGO COMPONENT — Identidad oficial Somos Inversión
+   Markup esperado:
+   <a href="..." class="brand-logo">
+     <img src="assets/logo-icon.png" class="brand-logo-img" alt="Somos Inversión">
+     <span class="brand-logo-text">
+       <span class="brand-logo-name">
+         <span class="brand-logo-name-somos">Somos</span> <span class="brand-logo-name-inv">Inversión</span>
+       </span>
+       <span class="brand-logo-tagline">Marketplace · Inteligencia inmobiliaria</span>
+     </span>
+   </a>
    ============================================================================= */
 .brand-logo {
   display: inline-flex;
@@ -89,36 +102,19 @@
   color: inherit;
   text-decoration: none;
   user-select: none;
+  font-family: var(--font-display);
 }
-.brand-logo-mark {
-  width: 38px;
+.brand-logo-img {
   height: 38px;
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, var(--brand-accent), var(--brand-primary-light)),
-    var(--brand-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-sans);
-  font-weight: 800;
-  font-size: 18px;
-  color: white;
-  letter-spacing: -0.5px;
-  position: relative;
-  overflow: hidden;
+  width: 38px;
+  display: block;
   flex-shrink: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 4px 12px rgba(6, 182, 212, 0.25);
+  object-fit: contain;
 }
-.brand-logo-mark::after {
-  /* subtle inner shine */
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.35), transparent 55%);
-  pointer-events: none;
+.brand-logo-img-light {
+  /* Para usar sobre fondos oscuros, invierte el PNG */
+  filter: brightness(0) invert(1);
+  opacity: 0.95;
 }
 .brand-logo-text {
   display: flex;
@@ -127,29 +123,32 @@
   text-align: left;
 }
 .brand-logo-name {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 17px;
   font-weight: 700;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
+}
+.brand-logo-name-somos {
+  color: var(--brand-accent);
+  font-weight: 700;
+}
+.brand-logo-name-inv {
+  font-weight: 400;
 }
 .brand-logo-tagline {
-  font-size: 9.5px;
-  opacity: 0.62;
-  margin-top: 4px;
+  font-family: var(--font-tech);
+  font-size: 10px;
+  opacity: 0.65;
+  margin-top: 5px;
   text-transform: uppercase;
-  letter-spacing: 1.6px;
+  letter-spacing: 1.4px;
   font-weight: 500;
 }
 
-/* Si el CEO sube una imagen real, usar este markup:
-   <a href="..." class="brand-logo">
-     <img src="assets/logo.svg" class="brand-logo-img" alt="Somos Inversión">
-   </a>
-*/
-.brand-logo-img {
-  height: 32px;
-  width: auto;
-  display: block;
-}
+/* Variante de marca solo con marca compacta (sin tagline) — para topbars compactos */
+.brand-logo.compact .brand-logo-tagline { display: none; }
+.brand-logo.compact .brand-logo-img { height: 32px; width: 32px; }
+.brand-logo.compact .brand-logo-name { font-size: 16px; }
 
 /* =============================================================================
    TECH / AI SUBTLE DESIGN ELEMENTS
@@ -218,14 +217,14 @@
   gap: 7px;
   font-size: 10.5px;
   padding: 4px 10px 4px 8px;
-  background: rgba(6, 182, 212, 0.10);
+  background: rgba(46, 204, 113, 0.10);
   color: var(--brand-accent-strong);
-  border: 1px solid rgba(6, 182, 212, 0.30);
+  border: 1px solid rgba(46, 204, 113, 0.30);
   border-radius: var(--radius-full);
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  font-family: var(--font-sans);
+  font-family: var(--font-tech);
 }
 .tech-ai-badge::before {
   content: '';
@@ -237,9 +236,9 @@
   animation: pulse-glow 2.2s infinite;
 }
 .tech-ai-badge-dark {
-  background: rgba(6, 182, 212, 0.14);
-  color: var(--brand-accent-soft);
-  border-color: rgba(6, 182, 212, 0.35);
+  background: rgba(46, 204, 113, 0.16);
+  color: #6ee7b7;
+  border-color: rgba(46, 204, 113, 0.38);
 }
 
 @keyframes pulse-glow {
@@ -379,14 +378,20 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px var(--brand-accent-glow) !important;
 }
 
-/* Body — agregar pattern sutil al background */
+/* Body — fuente oficial + background sutil con tinte brand */
 body {
+  font-family: var(--font-sans) !important;
   background-color: var(--color-bg);
   background-image:
-    radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.04) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, rgba(15, 58, 138, 0.03) 0px, transparent 50%);
+    radial-gradient(at 100% 0%, rgba(46, 204, 113, 0.04) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(26, 39, 68, 0.03) 0px, transparent 50%);
   background-attachment: fixed;
 }
+
+/* Titulares principales con Quicksand display font */
+h1, .page-title { font-family: var(--font-display); }
+/* Headers de sección + códigos técnicos con Space Grotesk */
+h2, h3, .tech-text { font-family: var(--font-tech); }
 
 /* Footer (catalogo) más sutil con brand */
 footer.bottombar {
