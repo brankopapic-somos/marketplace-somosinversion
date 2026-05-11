@@ -173,10 +173,25 @@
 
   function listUsuarios() { return [...(window.DATA.usuarios || [])]; }
 
-  function deleteUsuario(id) {
+  /**
+   * Por defecto desactiva (soft delete). Si force=true, valida que no haya dependencias
+   * y elimina físicamente. Si hay clientes/cotizaciones/reservas, se rechaza.
+   */
+  function deleteUsuario(id, options = {}) {
     const i = (window.DATA.usuarios || []).findIndex(u => u.id === id);
     if (i < 0) return false;
-    window.DATA.usuarios.splice(i, 1);
+    if (options.force) {
+      const clientes = (window.DATA.clientes || []).filter(c => c.broker_id === id).length;
+      const cots = (window.DATA.cotizaciones || []).filter(c => c.broker_id === id).length;
+      const reservas = (window.DATA.reservas || []).filter(r => r.broker_id === id).length;
+      if (clientes + cots + reservas > 0) {
+        throw new Error(`No se puede borrar: el usuario tiene ${clientes} cliente(s), ${cots} cotización(es) y ${reservas} reserva(s). Reasignalos primero o usá desactivación.`);
+      }
+      window.DATA.usuarios.splice(i, 1);
+    } else {
+      // Soft delete: desactivar
+      window.DATA.usuarios[i] = { ...window.DATA.usuarios[i], activo: false, updated_at: nowIso() };
+    }
     persist();
     return true;
   }
@@ -376,8 +391,12 @@
   // ---------------------------------------------------------------------------
   function nextReferenciaCotizacion() {
     ensureArr("cotizaciones");
-    const n = window.DATA.cotizaciones.length + 1;
-    return "Q-" + String(n).padStart(6, "0");
+    // Robusto contra deletes: usa max(refs existentes) + 1
+    const max = window.DATA.cotizaciones.reduce((m, c) => {
+      const n = parseInt((c.referencia || '').replace(/^Q-/, ''), 10);
+      return isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    return "Q-" + String(max + 1).padStart(6, "0");
   }
 
   function addCotizacion(data) {
@@ -450,8 +469,11 @@
 
   function nextReferenciaReserva() {
     ensureArr("reservas");
-    const n = window.DATA.reservas.length + 1;
-    return "R-" + String(n).padStart(6, "0");
+    const max = window.DATA.reservas.reduce((m, r) => {
+      const n = parseInt((r.referencia || '').replace(/^R-/, ''), 10);
+      return isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    return "R-" + String(max + 1).padStart(6, "0");
   }
 
   function addReserva(data) {
@@ -505,6 +527,7 @@
     window.DATA.unidades[uIdx] = { ...unidad, estado: 'reservada', updated_at: nowIso() };
 
     window.DATA.reservas.push(reserva);
+    recomputeProyectoEstado(unidad.proyecto_id); // Regla 8 modelo
     persist();
     return reserva;
   }
@@ -535,6 +558,7 @@
       notas: (reserva.notas ? reserva.notas + "\n" : "") + "Cancelada: " + (motivo || "sin motivo"),
       updated_at: nowIso()
     };
+    recomputeProyectoEstado(reserva.proyecto_id);
     persist();
     return window.DATA.reservas[i];
   }
@@ -575,6 +599,7 @@
       };
     }
     window.DATA.reservas[i] = { ...reserva, estado: 'escriturada', updated_at: nowIso() };
+    recomputeProyectoEstado(reserva.proyecto_id);
     persist();
     return window.DATA.reservas[i];
   }
@@ -780,6 +805,7 @@
       throw new Error(`Transición prohibida: ${oldEstado} → ${newEstado}. Ver docs/01-MODELO-DATOS.md sección 7.`);
     }
     window.DATA.unidades[i] = { ...window.DATA.unidades[i], ...patch, updated_at: nowIso() };
+    recomputeProyectoEstado(window.DATA.unidades[i].proyecto_id);
     persist();
     return window.DATA.unidades[i];
   }
@@ -865,6 +891,31 @@
 
   function isValidTransition(from, to) {
     return (TRANSITIONS[from] || []).includes(to);
+  }
+
+  /**
+   * Recalcula estado_negocio del proyecto según count de unidades disponibles.
+   * Regla 8 del modelo (01-MODELO-DATOS.md): si 0 disponibles → agotado.
+   * Si vuelve a tener disponibles y estaba agotado → activo.
+   * No toca proyectos en estado "pausado" (decisión manual del admin).
+   */
+  function recomputeProyectoEstado(proyectoId) {
+    const idx = window.DATA.proyectos.findIndex(p => p.id === proyectoId);
+    if (idx < 0) return;
+    const p = window.DATA.proyectos[idx];
+    if (p.estado_negocio === 'pausado') return; // respetar decisión manual
+
+    const disponibles = window.DATA.unidades.filter(
+      u => u.proyecto_id === proyectoId && u.estado === 'disponible'
+    ).length;
+
+    let nuevo = p.estado_negocio;
+    if (disponibles === 0 && p.estado_negocio === 'activo') nuevo = 'agotado';
+    else if (disponibles > 0 && p.estado_negocio === 'agotado') nuevo = 'activo';
+
+    if (nuevo !== p.estado_negocio) {
+      window.DATA.proyectos[idx] = { ...p, estado_negocio: nuevo, updated_at: nowIso() };
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1133,7 +1184,7 @@
     reservasByBroker, reservasByCliente, reservaActivaByUnidad, RESERVA_ESTADOS,
     addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
     addProyecto, updateProyecto, deleteProyecto,
-    addUnidad, updateUnidad, deleteUnidad,
+    addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
     setCondicionesProyecto,
     isValidTransition, TRANSITIONS,
     validateInmobiliaria, validateProyecto, validateUnidad,

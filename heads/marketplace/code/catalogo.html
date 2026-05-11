@@ -888,12 +888,32 @@ function renderCotizador(unidadId) {
           <strong>Aviso:</strong> Cálculo referencial usando amortización francesa. La tasa final del crédito hipotecario depende de evaluación bancaria. UF se ajusta diariamente según Banco Central.
         </div>
 
-        <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
-          <button id="btn-guardar-cot" class="btn btn-primary" ${u.estado !== 'disponible' ? 'disabled title="Unidad no disponible"' : ''} style="width:100%;">💾 Guardar cotización para cliente</button>
-          <button id="btn-reservar" class="btn ${u.estado === 'disponible' ? 'btn-primary' : 'btn-ghost'}" ${u.estado !== 'disponible' ? 'disabled' : ''} style="width:100%;background:${u.estado === 'disponible' ? '#16a34a' : ''};">
-            ${u.estado === 'disponible' ? '🔒 Reservar para cliente' : `Unidad ${u.estado}`}
-          </button>
-        </div>
+        ${(() => {
+          // Reglas de habilitación del botón Reservar
+          const proyectoOk = p.estado_negocio === 'activo' && p.estado_ingesta === 'ok';
+          const unidadOk = u.estado === 'disponible';
+          const canReservar = proyectoOk && unidadOk;
+          let labelReserva, motivo = '';
+          if (!proyectoOk) {
+            if (p.estado_negocio === 'agotado') motivo = 'Proyecto agotado';
+            else if (p.estado_negocio === 'pausado') motivo = 'Proyecto pausado';
+            else if (p.estado_ingesta === 'timeout') motivo = 'Datos en revisión';
+            else if (p.estado_ingesta === 'error') motivo = 'Error de ingesta';
+            else motivo = 'Proyecto no disponible';
+          } else if (!unidadOk) {
+            motivo = `Unidad ${u.estado}`;
+          }
+          labelReserva = canReservar ? '🔒 Reservar para cliente' : motivo;
+          return `
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+              <button id="btn-guardar-cot" class="btn btn-primary" style="width:100%;">💾 Guardar cotización para cliente</button>
+              <button id="btn-reservar" class="btn ${canReservar ? 'btn-primary' : 'btn-ghost'}" ${canReservar ? '' : 'disabled'} style="width:100%;${canReservar ? 'background:#16a34a;' : ''}">
+                ${labelReserva}
+              </button>
+              ${!canReservar ? `<div style="font-size:11px;color:#6b7280;text-align:center;">Solo se pueden reservar unidades disponibles en proyectos activos.</div>` : ''}
+            </div>
+          `;
+        })()}
       </div>
     </div>
   `;
@@ -930,7 +950,8 @@ function renderCotizador(unidadId) {
 
   document.getElementById('btn-guardar-cot').addEventListener('click', () => modalAsignarCotizacion(u, lastCalc));
   document.getElementById('btn-reservar').addEventListener('click', () => {
-    if (u.estado !== 'disponible') return;
+    const proyectoOk = p.estado_negocio === 'activo' && p.estado_ingesta === 'ok';
+    if (u.estado !== 'disponible' || !proyectoOk) return;
     modalReservarUnidad(u);
   });
 }
@@ -943,6 +964,7 @@ function renderCotizador(unidadId) {
 // =============================================================================
 function showModal(html, onClose) {
   const wrap = document.createElement('div');
+  wrap.setAttribute('data-modal', 'true');
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
   wrap.innerHTML = `<div style="background:#fff;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;">${html}</div>`;
   wrap.addEventListener('click', e => {
@@ -1421,7 +1443,11 @@ function router() {
   window.scrollTo(0, 0);
 }
 
-window.addEventListener('hashchange', router);
+window.addEventListener('hashchange', () => {
+  // Si hay modales abiertos, los cerramos antes de navegar
+  document.querySelectorAll('.modal-bg, [data-modal]').forEach(el => el.remove());
+  router();
+});
 window.addEventListener('storage', e => {
   // Otra pestaña (admin) modificó localStorage → recargar para ver cambios
   if (e.key && e.key.startsWith('marketplace.')) location.reload();

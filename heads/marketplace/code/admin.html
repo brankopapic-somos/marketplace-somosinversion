@@ -731,11 +731,17 @@ function clientesAdmin() {
   const clientes = window.Marketplace.listAllClientes();
   const usuarios = window.DATA.usuarios || [];
   const filterBroker = window._adminFilterBroker || '';
-  const filtered = filterBroker
-    ? clientes.filter(c => c.broker_id === filterBroker)
-    : clientes;
-
   const userById = id => usuarios.find(u => u.id === id);
+
+  // FIX #1: filtro huérfanos
+  let filtered;
+  if (filterBroker === '__orphan__') {
+    filtered = clientes.filter(c => !userById(c.broker_id));
+  } else if (filterBroker) {
+    filtered = clientes.filter(c => c.broker_id === filterBroker);
+  } else {
+    filtered = clientes;
+  }
 
   tabContent.innerHTML = `
     <div class="panel">
@@ -767,7 +773,7 @@ function clientesAdmin() {
           </tr>
         </thead>
         <tbody>
-          ${(filterBroker === '__orphan__' ? filtered.filter(c => !userById(c.broker_id)) : filtered).map(c => {
+          ${filtered.map(c => {
             const broker = userById(c.broker_id);
             const cots = (window.DATA.cotizaciones || []).filter(x => x.cliente_id === c.id);
             const rsvs = (window.DATA.reservas || []).filter(x => x.cliente_id === c.id);
@@ -792,6 +798,7 @@ function clientesAdmin() {
                 <td style="text-align:center;">${rsvs.length} ${rsvsActivas.length > 0 ? `<br><small style="color:#f59e0b;">${rsvsActivas.length} activa(s)</small>` : ''}</td>
                 <td class="row-actions">
                   <button class="btn btn-primary btn-sm" data-reassign="${c.id}">Reasignar</button>
+                  <button class="btn btn-ghost btn-sm" data-edit-cli="${c.id}">Editar</button>
                   <button class="btn btn-ghost btn-sm" data-detail="${c.id}">Detalle</button>
                 </td>
               </tr>
@@ -812,6 +819,43 @@ function clientesAdmin() {
     b.addEventListener('click', () => modalReasignarCliente(b.dataset.reassign)));
   document.querySelectorAll('[data-detail]').forEach(b =>
     b.addEventListener('click', () => modalDetalleCliente(b.dataset.detail)));
+  document.querySelectorAll('[data-edit-cli]').forEach(b =>
+    b.addEventListener('click', () => modalEditarClienteAdmin(b.dataset.editCli)));
+}
+
+function modalEditarClienteAdmin(clienteId) {
+  const cli = window.Marketplace.clienteById(clienteId);
+  if (!cli) { toast('Cliente no existe', 'error'); return; }
+  const html = `
+    <h2>Editar datos del cliente</h2>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Modificás los datos de contacto del cliente. Para cambiar el broker asignado usá <strong>Reasignar</strong>.</p>
+    <form id="form-edit-cli">
+      <div class="form-grid">
+        <div class="field full"><label>Nombre *</label><input name="nombre" value="${cli.nombre}" required></div>
+        <div class="field"><label>Email</label><input type="email" name="email" value="${cli.email || ''}"></div>
+        <div class="field"><label>Teléfono</label><input type="tel" name="telefono" value="${cli.telefono || ''}"></div>
+        <div class="field"><label>RUT</label><input name="rut" value="${cli.rut || ''}" placeholder="12.345.678-9"></div>
+        <div class="field"><label>Origen</label><input name="origen" value="${cli.origen || 'manual'}"></div>
+        <div class="field full"><label>Notas</label><textarea name="notas">${cli.notas || ''}</textarea></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar cambios</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-edit-cli').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      window.Marketplace.updateCliente(clienteId, data);
+      modal.remove();
+      toast('Cliente actualizado');
+      clientesAdmin();
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 function modalReasignarCliente(clienteId) {
@@ -1162,6 +1206,11 @@ function unitStateBadge(estado) {
   const map = { disponible: 'badge-green', reservada: 'badge-amber', vendida: 'badge-gray', bloqueada: 'badge-red' };
   return `<span class="badge ${map[estado] || 'badge-gray'}">${estado}</span>`;
 }
+
+// Storage events — si otra pestaña (catalogo de un broker) modifica datos, refrescamos
+window.addEventListener('storage', e => {
+  if (e.key && e.key.startsWith('marketplace.')) location.reload();
+});
 
 // Init
 render();
