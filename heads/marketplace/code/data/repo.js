@@ -10,6 +10,7 @@
 (function () {
   const STORAGE_KEY = "marketplace.data.v1";
   const AUDIT_KEY = "marketplace.audit.v1";
+  const SESSION_KEY = "marketplace.session.v1";
 
   // ---------------------------------------------------------------------------
   // Hidratación inicial
@@ -69,6 +70,131 @@
 
   function clearAuditLog() {
     localStorage.removeItem(AUDIT_KEY);
+  }
+
+  // ---------------------------------------------------------------------------
+  // AUTH + USUARIOS — MOCK para MVP
+  // ⚠ NO ES SEGURIDAD PRODUCTIVA. Hash débil, sin verificación, sin backend.
+  // Se reemplaza por auth del ecosistema origen al integrar.
+  // ---------------------------------------------------------------------------
+  const ROLES = ["broker", "admin"];
+
+  /** Hash débil — solo para MVP. NO usar en producción. */
+  function hashPassword(pw) {
+    const salt = "mvp-celula-marketplace-v1";
+    const s = pw + salt;
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) - h) + s.charCodeAt(i);
+      h |= 0;
+    }
+    // Double-pass para distribuir mejor
+    let h2 = h;
+    for (let i = 0; i < s.length; i++) {
+      h2 = ((h2 << 7) - h2) + s.charCodeAt(s.length - 1 - i);
+      h2 |= 0;
+    }
+    return "h:" + Math.abs(h).toString(36) + "." + Math.abs(h2).toString(36);
+  }
+
+  function getSession() {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  function setSession(s) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  }
+
+  function currentUser() {
+    const sess = getSession();
+    if (!sess) return null;
+    const u = (window.DATA.usuarios || []).find(x => x.id === sess.userId);
+    return u && u.activo ? u : null;
+  }
+
+  function isAuthenticated() { return currentUser() !== null; }
+
+  function hasRole(role) {
+    const u = currentUser();
+    return u && u.role === role;
+  }
+
+  function validateEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  function register({ email, password, role, nombre, telefono }) {
+    if (!validateEmail(email)) throw new Error("Email inválido");
+    if (!password || password.length < 6) throw new Error("Clave: mínimo 6 caracteres");
+    if (!ROLES.includes(role)) throw new Error("Rol inválido (broker | admin)");
+    if (!nombre || nombre.trim().length < 2) throw new Error("Nombre requerido");
+
+    if (!window.DATA.usuarios) window.DATA.usuarios = [];
+    const normalizedEmail = email.toLowerCase().trim();
+    if (window.DATA.usuarios.some(u => u.email === normalizedEmail))
+      throw new Error("Ya existe una cuenta con ese email");
+
+    const user = {
+      id: uid("us"),
+      email: normalizedEmail,
+      password_hash: hashPassword(password),
+      role,
+      nombre: nombre.trim(),
+      telefono: telefono || null,
+      activo: true,
+      created_at: nowIso(),
+      last_login_at: null
+    };
+    window.DATA.usuarios.push(user);
+    persist();
+    // Auto-login después del registro
+    setSession({ userId: user.id, email: user.email, role: user.role, loginAt: nowIso() });
+    return user;
+  }
+
+  function login(email, password) {
+    const normalizedEmail = (email || "").toLowerCase().trim();
+    const u = (window.DATA.usuarios || []).find(x => x.email === normalizedEmail);
+    if (!u) throw new Error("Email no registrado");
+    if (!u.activo) throw new Error("Cuenta desactivada");
+    if (u.password_hash !== hashPassword(password)) throw new Error("Clave incorrecta");
+    u.last_login_at = nowIso();
+    persist();
+    setSession({ userId: u.id, email: u.email, role: u.role, loginAt: nowIso() });
+    return u;
+  }
+
+  function logout() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function listUsuarios() { return [...(window.DATA.usuarios || [])]; }
+
+  function deleteUsuario(id) {
+    const i = (window.DATA.usuarios || []).findIndex(u => u.id === id);
+    if (i < 0) return false;
+    window.DATA.usuarios.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  function updateUsuario(id, patch) {
+    const i = (window.DATA.usuarios || []).findIndex(u => u.id === id);
+    if (i < 0) throw new Error("Usuario no encontrado");
+    const updated = { ...window.DATA.usuarios[i], ...patch };
+    // Si cambian password, hashear
+    if (patch.password) {
+      if (patch.password.length < 6) throw new Error("Clave: mínimo 6 caracteres");
+      updated.password_hash = hashPassword(patch.password);
+      delete updated.password;
+    }
+    if (patch.role && !ROLES.includes(patch.role)) throw new Error("Rol inválido");
+    window.DATA.usuarios[i] = updated;
+    persist();
+    return updated;
   }
 
   // ---------------------------------------------------------------------------
@@ -599,6 +725,8 @@
   const source = hydrate();
   window.Marketplace = {
     source, // 'localStorage' o 'seeds'
+    ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
+    listUsuarios, deleteUsuario, updateUsuario, validateEmail,
     addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad,

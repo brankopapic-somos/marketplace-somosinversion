@@ -301,5 +301,11 @@ window.DATA = {
   ufReferencia: {
     fecha: "2026-04-30",
     valor_clp: 39854
-  }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Usuarios — vacío en seeds. Se crean vía register() en la landing.
+  // El landing ofrece un botón "Crear cuentas demo" para testing rápido.
+  // ---------------------------------------------------------------------------
+  usuarios: []
 };
