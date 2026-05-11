@@ -1101,13 +1101,23 @@ function modalDetalleCliente(clienteId) {
 
     <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Reservas (${reservas.length})</h3>
     ${reservas.length === 0 ? '<p style="color:#6b7280;font-size:13px;">Sin reservas.</p>' : `
-      <div style="max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;">
+      <div style="max-height:240px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;">
         <table style="font-size:12px;">
-          <thead><tr><th>Ref</th><th>Broker</th><th>Estado</th><th>Vence</th></tr></thead>
+          <thead><tr><th>Ref</th><th>Broker</th><th>Método</th><th>Monto</th><th>Estado</th><th>Vence</th></tr></thead>
           <tbody>
             ${reservas.map(r => {
               const b = usuarios.find(u => u.id === r.broker_id);
-              return `<tr><td><code>${r.referencia}</code></td><td>${b ? b.nombre : '—'}</td><td>${r.estado}</td><td>${r.fecha_vencimiento}</td></tr>`;
+              const metodo = r.metodo_pago || 'transferencia';
+              const metodoLabel = metodo === 'reserva_cero' ? 'Reserva 0' : 'Transf.';
+              const hasComp = r.comprobante && r.comprobante.dataurl;
+              return `<tr>
+                <td><code>${r.referencia}</code></td>
+                <td>${b ? b.nombre : '—'}</td>
+                <td>${metodoLabel}${hasComp ? ` <a href="${r.comprobante.dataurl}" download="${r.comprobante.filename}" style="color:#16a34a;text-decoration:none;" title="Descargar comprobante">📎</a>` : ''}</td>
+                <td>${r.monto_reserva_clp ? '$' + Number(r.monto_reserva_clp).toLocaleString('es-CL') : '—'}</td>
+                <td>${r.estado}</td>
+                <td>${r.fecha_vencimiento}</td>
+              </tr>`;
             }).join('')}
           </tbody>
         </table>

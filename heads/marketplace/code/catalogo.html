@@ -1426,7 +1426,8 @@ function renderReservas() {
             <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Ref</th>
             <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Cliente</th>
             <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Proyecto · Unidad</th>
-            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Precio</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Método</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Monto</th>
             <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Estado</th>
             <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Vence</th>
             <th></th>
@@ -1438,12 +1439,21 @@ function renderReservas() {
               const proj = un ? DATA.proyectos.find(p => p.id === un.proyecto_id) : null;
               const colors = { pendiente:'#f59e0b', confirmada:'#2563eb', escriturada:'#16a34a', cancelada:'#6b7280' };
               const bgs = { pendiente:'#fef3c7', confirmada:'#dbeafe', escriturada:'#dcfce7', cancelada:'#f3f4f6' };
+              const metodo = r.metodo_pago || 'transferencia';
+              const metodoLabel = metodo === 'reserva_cero' ? 'Reserva 0' : 'Transferencia';
+              const metodoBg = metodo === 'reserva_cero' ? 'rgba(245, 166, 35, 0.15)' : 'rgba(46, 204, 113, 0.12)';
+              const metodoColor = metodo === 'reserva_cero' ? '#92400e' : 'var(--brand-accent-strong)';
+              const hasComprobante = r.comprobante && r.comprobante.dataurl;
               return `
                 <tr style="border-top:1px solid #f3f4f6;">
                   <td style="padding:10px 16px;"><code style="font-size:11px;background:#f3f4f6;padding:2px 5px;border-radius:3px;">${r.referencia}</code></td>
                   <td style="padding:10px 16px;">${cli ? cli.nombre : '<span style="color:#9ca3af;">[eliminado]</span>'}</td>
                   <td style="padding:10px 16px;">${proj ? proj.nombre : '—'}<br><small style="color:#6b7280;">Unidad ${un ? un.numero : '?'}</small></td>
-                  <td style="padding:10px 16px;">UF ${fmtUf(r.precio_uf_snapshot)}</td>
+                  <td style="padding:10px 16px;">
+                    <span style="background:${metodoBg};color:${metodoColor};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${metodoLabel}</span>
+                    ${hasComprobante ? `<br><a href="${r.comprobante.dataurl}" download="${r.comprobante.filename}" style="font-size:11px;color:var(--brand-accent-strong);text-decoration:underline;margin-top:3px;display:inline-block;">📎 Comprobante</a>` : ''}
+                  </td>
+                  <td style="padding:10px 16px;">${r.monto_reserva_clp ? '$ ' + fmtClp(r.monto_reserva_clp) : '<small style="color:#6b7280;">—</small>'}</td>
                   <td style="padding:10px 16px;"><span style="background:${bgs[r.estado]};color:${colors[r.estado]};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${r.estado}</span></td>
                   <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${r.fecha_vencimiento}</td>
                   <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
@@ -1528,28 +1538,93 @@ function modalAsignarCotizacion(unidad, calculo) {
 function modalReservarUnidad(unidad) {
   const u = window.Marketplace.currentUser();
   const clientes = window.Marketplace.clientesByBroker(u.id);
+  const lStyle = 'font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;';
+  const fStyle = 'width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;';
+
   const html = `
-    <h2 style="margin-bottom:14px;">Reservar unidad</h2>
-    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">La reserva debe asignarse a un cliente de tu cartera. Al confirmar, la unidad pasa a estado <strong>reservada</strong>.</p>
+    <h2 style="margin-bottom:6px;">Reservar unidad</h2>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:18px;">La reserva debe asignarse a un cliente. Al confirmar, la unidad pasa a estado <strong>reservada</strong>.</p>
+
     <form id="form-reserva">
-      <div style="margin-bottom:12px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Cliente *</label>
-        <select name="cliente_id" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;">
+
+      <!-- PASO 1: Método de pago -->
+      <div style="margin-bottom:16px;">
+        <div style="${lStyle};margin-bottom:8px;">Método de pago *</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <label class="metodo-card" data-metodo="transferencia" style="display:flex;flex-direction:column;align-items:flex-start;padding:14px;border:2px solid var(--brand-accent);border-radius:10px;cursor:pointer;background:rgba(46,204,113,0.06);transition:all 0.15s;">
+            <input type="radio" name="metodo_pago" value="transferencia" checked style="position:absolute;opacity:0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--brand-accent-strong);"><path d="M21 12c0 1-1 2-2 2H5c-1 0-2-1-2-2s1-2 2-2h14c1 0 2 1 2 2z"/><path d="M3 8v8c0 1 1 2 2 2h14c1 0 2-1 2-2V8"/><path d="M16 12v4"/><path d="M8 12v4"/></svg>
+              <strong style="font-size:14px;">Transferencia</strong>
+            </div>
+            <small style="font-size:11px;color:#6b7280;line-height:1.4;">Cliente paga la reserva. Requiere comprobante.</small>
+          </label>
+          <label class="metodo-card" data-metodo="reserva_cero" style="display:flex;flex-direction:column;align-items:flex-start;padding:14px;border:2px solid #e2e8f0;border-radius:10px;cursor:pointer;background:#fff;transition:all 0.15s;">
+            <input type="radio" name="metodo_pago" value="reserva_cero" style="position:absolute;opacity:0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#6b7280;"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+              <strong style="font-size:14px;">Reserva 0</strong>
+            </div>
+            <small style="font-size:11px;color:#6b7280;line-height:1.4;">Promoción sin pago inicial. No requiere comprobante.</small>
+          </label>
+        </div>
+      </div>
+
+      <!-- PASO 2: Cliente -->
+      <div style="margin-bottom:14px;">
+        <label style="${lStyle}">Cliente *</label>
+        <select name="cliente_id" required style="${fStyle}">
           <option value="">— Seleccionar —</option>
           ${clientes.map(c => `<option value="${c.id}">${c.nombre}${c.email ? ' · '+c.email : ''}</option>`).join('')}
         </select>
-        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:#2563eb;">Crear un cliente →</a></div>' : ''}
+        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:var(--brand-accent-strong);font-weight:600;">Crear un cliente →</a></div>' : ''}
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;">
-        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Monto reserva (CLP)</label>
-          <input type="number" name="monto_reserva_clp" value="500000" min="0" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
-        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Vigencia (días)</label>
-          <input type="number" name="dias_vigencia" value="5" min="1" max="30" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+
+      <!-- PASO 3: Campos según método -->
+      <div id="campos-transferencia">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+          <div><label style="${lStyle}">Monto reserva (CLP) *</label>
+            <input type="number" name="monto_reserva_clp" value="500000" min="1" style="${fStyle}"></div>
+          <div><label style="${lStyle}">Vigencia (días)</label>
+            <input type="number" name="dias_vigencia" value="5" min="1" max="30" style="${fStyle}"></div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="${lStyle}">Comprobante de transferencia *</label>
+          <div style="margin-top:6px;">
+            <input type="file" id="comprobante-file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:block;width:100%;padding:9px;border:1px dashed #cbd5e1;border-radius:6px;background:#f9fafb;font-size:13px;cursor:pointer;">
+          </div>
+          <div id="comprobante-preview" style="display:none;margin-top:8px;padding:10px 12px;background:var(--brand-accent-soft);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:10px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--brand-accent-strong);flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>
+            <div style="flex:1;min-width:0;">
+              <div id="comprobante-name" style="font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+              <div id="comprobante-size" style="color:#475569;font-size:11px;"></div>
+            </div>
+            <button type="button" id="comprobante-clear" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:14px;">×</button>
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:6px;">PDF, JPG o PNG · máximo 2 MB</div>
+        </div>
       </div>
-      <div style="margin-bottom:14px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Notas</label>
-        <textarea name="notas" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;min-height:60px;font-family:inherit;"></textarea></div>
-      <div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:13px;color:#374151;margin-bottom:14px;">
-        Unidad: <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)} <span style="color:#9ca3af;">(snapshot)</span>
+
+      <div id="campos-reserva-cero" style="display:none;margin-bottom:14px;">
+        <div style="padding:14px;background:#fffbeb;border-left:3px solid var(--brand-secondary);border-radius:6px;font-size:13px;color:#92400e;line-height:1.5;">
+          <strong>Reserva 0 — promoción sin pago inicial.</strong><br>
+          Monto de reserva: <strong>$ 0</strong>. No se requiere comprobante.
+        </div>
+        <div style="margin-top:14px;">
+          <label style="${lStyle}">Vigencia (días)</label>
+          <input type="number" name="dias_vigencia_rc" value="5" min="1" max="30" style="${fStyle}max-width:200px;">
+        </div>
       </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="${lStyle}">Notas</label>
+        <textarea name="notas" style="${fStyle}min-height:60px;font-family:inherit;resize:vertical;"></textarea>
+      </div>
+
+      <div style="background:#f1f5f9;border-radius:6px;padding:10px 12px;font-size:13px;color:#334155;margin-bottom:14px;">
+        Unidad: <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)} <span style="color:#94a3b8;">(snapshot)</span>
+      </div>
+
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
         <button type="submit" class="btn btn-primary" ${clientes.length === 0 ? 'disabled' : ''}>Confirmar reserva</button>
@@ -1558,22 +1633,117 @@ function modalReservarUnidad(unidad) {
   `;
   const modal = showModal(html);
   modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+  // ===== Selector método de pago — visual + condicional =====
+  let comprobanteDataUrl = null;
+  let comprobanteFilename = null;
+  let metodoSeleccionado = 'transferencia';
+
+  const camposTransferencia = modal.querySelector('#campos-transferencia');
+  const camposReservaCero = modal.querySelector('#campos-reserva-cero');
+  const fileInput = modal.querySelector('#comprobante-file');
+  const preview = modal.querySelector('#comprobante-preview');
+  const previewName = modal.querySelector('#comprobante-name');
+  const previewSize = modal.querySelector('#comprobante-size');
+
+  const setMetodo = (metodo) => {
+    metodoSeleccionado = metodo;
+    // Visual cards
+    modal.querySelectorAll('.metodo-card').forEach(card => {
+      const isSelected = card.dataset.metodo === metodo;
+      card.style.borderColor = isSelected ? 'var(--brand-accent)' : '#e2e8f0';
+      card.style.background = isSelected ? 'rgba(46,204,113,0.06)' : '#fff';
+      card.querySelector('input[type=radio]').checked = isSelected;
+      card.querySelector('svg').style.color = isSelected ? 'var(--brand-accent-strong)' : '#6b7280';
+    });
+    // Toggle campos
+    if (metodo === 'transferencia') {
+      camposTransferencia.style.display = 'block';
+      camposReservaCero.style.display = 'none';
+    } else {
+      camposTransferencia.style.display = 'none';
+      camposReservaCero.style.display = 'block';
+    }
+  };
+
+  modal.querySelectorAll('.metodo-card').forEach(card => {
+    card.addEventListener('click', () => setMetodo(card.dataset.metodo));
+  });
+
+  // ===== File upload handler =====
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) {
+      preview.style.display = 'none';
+      comprobanteDataUrl = null;
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast(`Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)} MB). Máximo 2 MB.`, 'error');
+      fileInput.value = '';
+      return;
+    }
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    if (!allowedMimes.includes(file.type)) {
+      showToast('Tipo de archivo no permitido. Usá PDF, JPG o PNG.', 'error');
+      fileInput.value = '';
+      return;
+    }
+    try {
+      comprobanteDataUrl = await fileToDataUrl(file);
+      comprobanteFilename = file.name;
+      previewName.textContent = file.name;
+      previewSize.textContent = `${(file.size/1024).toFixed(0)} KB · ${file.type}`;
+      preview.style.display = 'flex';
+    } catch (err) {
+      showToast('Error leyendo archivo: ' + err.message, 'error');
+    }
+  });
+
+  modal.querySelector('#comprobante-clear').addEventListener('click', () => {
+    fileInput.value = '';
+    comprobanteDataUrl = null;
+    comprobanteFilename = null;
+    preview.style.display = 'none';
+  });
+
+  // ===== Submit =====
   modal.querySelector('#form-reserva').addEventListener('submit', e => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
+    const fd = new FormData(e.target);
+    const data = Object.fromEntries(fd.entries());
+    const isTransferencia = metodoSeleccionado === 'transferencia';
+
+    if (isTransferencia && !comprobanteDataUrl) {
+      showToast('Adjuntá el comprobante de transferencia', 'error');
+      return;
+    }
+
     try {
       const r = window.Marketplace.addReserva({
         cliente_id: data.cliente_id,
         unidad_id: unidad.id,
-        monto_reserva_clp: data.monto_reserva_clp,
-        dias_vigencia: data.dias_vigencia,
+        metodo_pago: metodoSeleccionado,
+        monto_reserva_clp: isTransferencia ? data.monto_reserva_clp : 0,
+        dias_vigencia: isTransferencia ? data.dias_vigencia : data.dias_vigencia_rc,
+        comprobante_dataurl: isTransferencia ? comprobanteDataUrl : null,
+        comprobante_filename: isTransferencia ? comprobanteFilename : null,
         notas: data.notas
       });
       modal.remove();
-      showToast(`Reserva ${r.referencia} creada · unidad reservada`);
-      // recargar la vista actual para reflejar el nuevo estado
+      const tipoMsg = metodoSeleccionado === 'reserva_cero' ? '(Reserva 0)' : '';
+      showToast(`Reserva ${r.referencia} creada · unidad reservada ${tipoMsg}`);
       router();
     } catch (err) { showToast(err.message, 'error'); }
+  });
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('FileReader failed'));
+    reader.readAsDataURL(file);
   });
 }
 

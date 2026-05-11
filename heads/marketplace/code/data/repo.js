@@ -540,6 +540,9 @@
   //          cualquiera → cancelada
   // ---------------------------------------------------------------------------
   const RESERVA_ESTADOS = ["pendiente", "confirmada", "escriturada", "cancelada"];
+  const RESERVA_METODOS = ["transferencia", "reserva_cero"];
+  const COMPROBANTE_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
+  const COMPROBANTE_MIMETYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
 
   function nextReferenciaReserva() {
     ensureArr("reservas");
@@ -556,6 +559,12 @@
     if (!u) throw new Error("Requiere sesión");
     if (!data.cliente_id) throw new Error("Toda reserva debe estar asociada a un cliente");
     if (!data.unidad_id) throw new Error("unidad_id requerido");
+
+    // Validar método de pago
+    const metodoPago = data.metodo_pago || "transferencia";
+    if (!RESERVA_METODOS.includes(metodoPago))
+      throw new Error("Método de pago inválido (transferencia | reserva_cero)");
+
     const cli = clienteById(data.cliente_id);
     if (!cli) throw new Error("Cliente no existe");
     if (u.role !== 'admin' && cli.broker_id !== u.id)
@@ -572,6 +581,38 @@
     if (reservaActiva)
       throw new Error("La unidad ya tiene una reserva activa (referencia " + reservaActiva.referencia + ")");
 
+    // Validaciones específicas por método
+    let monto, comprobante = null;
+    if (metodoPago === "transferencia") {
+      monto = Number(data.monto_reserva_clp);
+      if (!monto || monto <= 0)
+        throw new Error("Transferencia requiere monto de reserva > 0");
+      if (!data.comprobante_dataurl)
+        throw new Error("Transferencia requiere adjuntar comprobante");
+      if (!data.comprobante_dataurl.startsWith("data:"))
+        throw new Error("Comprobante: formato inválido (debe ser data URL)");
+      // Validar mime y tamaño
+      const mimeMatch = data.comprobante_dataurl.match(/^data:([^;]+);/);
+      const mime = mimeMatch ? mimeMatch[1] : null;
+      if (!mime || !COMPROBANTE_MIMETYPES.includes(mime))
+        throw new Error("Comprobante: tipo no permitido (PDF, JPG o PNG)");
+      // Tamaño aproximado del dataURL en bytes (base64 → bytes reales)
+      const base64Part = data.comprobante_dataurl.split(",")[1] || "";
+      const approxBytes = Math.floor((base64Part.length * 3) / 4);
+      if (approxBytes > COMPROBANTE_MAX_BYTES)
+        throw new Error(`Comprobante: tamaño excede el máximo (${Math.round(approxBytes/1024/1024 * 10)/10} MB > 2 MB)`);
+      comprobante = {
+        dataurl: data.comprobante_dataurl,
+        filename: data.comprobante_filename || "comprobante",
+        mimetype: mime,
+        size_bytes: approxBytes,
+        uploaded_at: nowIso()
+      };
+    } else if (metodoPago === "reserva_cero") {
+      // Reserva 0 → monto siempre 0, sin comprobante
+      monto = 0;
+    }
+
     const vencimiento = new Date(Date.now() + (data.dias_vigencia || 5) * 24 * 60 * 60 * 1000)
       .toISOString().slice(0, 10);
 
@@ -584,7 +625,9 @@
       proyecto_id: unidad.proyecto_id,
       precio_uf_snapshot: Number(unidad.precio_uf),
       pie_porcentaje: data.pie_porcentaje ? Number(data.pie_porcentaje) : null,
-      monto_reserva_clp: data.monto_reserva_clp ? Number(data.monto_reserva_clp) : null,
+      monto_reserva_clp: monto,
+      metodo_pago: metodoPago,
+      comprobante: comprobante,
       estado: "pendiente",
       fecha_reserva: nowIso(),
       fecha_vencimiento: vencimiento,
@@ -1257,7 +1300,8 @@
     listAllClientes, listBrokers, reassignCliente, reassignCotizacion, reassignReserva,
     addCotizacion, cotizacionesByBroker, cotizacionesByCliente, deleteCotizacion,
     addReserva, cancelReserva, confirmarReserva, escriturarReserva,
-    reservasByBroker, reservasByCliente, reservaActivaByUnidad, RESERVA_ESTADOS,
+    reservasByBroker, reservasByCliente, reservaActivaByUnidad,
+    RESERVA_ESTADOS, RESERVA_METODOS, COMPROBANTE_MAX_BYTES, COMPROBANTE_MIMETYPES,
     addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
