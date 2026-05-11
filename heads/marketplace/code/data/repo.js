@@ -213,10 +213,31 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Constantes de dominio para Cliente
+  // ---------------------------------------------------------------------------
+  const CHILE_REGIONES = [
+    "Arica y Parinacota", "Tarapacá", "Antofagasta", "Atacama", "Coquimbo",
+    "Valparaíso", "Metropolitana", "Libertador Bernardo O'Higgins", "Maule",
+    "Ñuble", "Biobío", "La Araucanía", "Los Ríos", "Los Lagos",
+    "Aysén", "Magallanes y Antártica Chilena"
+  ];
+  const CLIENTE_SEXOS = ["masculino", "femenino", "otro", "no_responde"];
+  const CLIENTE_ESTADO_CIVIL = ["soltero", "casado", "divorciado", "viudo"];
+  const CLIENTE_REGIMEN_MATRIMONIAL = ["sociedad_conyugal", "separacion_bienes", "participacion_gananciales"];
+  const CLIENTE_TIPO_COMPRA = ["persona_natural", "empresa"];
+  const CLIENTE_CONDICION_LABORAL = ["dependiente", "independiente"];
+  const CLIENTE_PROPOSITO_COMPRA = ["invertir", "vivir"];
+
+  // ---------------------------------------------------------------------------
   // CRUD: Clientes — pertenecen a un broker (broker_id)
   // ---------------------------------------------------------------------------
   function ensureArr(key) {
     if (!window.DATA[key]) window.DATA[key] = [];
+  }
+
+  function validateRut(rut) {
+    // Sintaxis aceptada: '12.345.678-9' o '12345678-9' o '12345678-K'
+    return /^[\d.]{1,12}-[\dkK]$/.test((rut || "").trim());
   }
 
   function validateCliente(c) {
@@ -224,6 +245,22 @@
     if (!c.nombre || c.nombre.trim().length < 2) errs.push("nombre requerido");
     if (c.email && !validateEmail(c.email)) errs.push("email inválido");
     if (!c.email && !c.telefono) errs.push("requerido al menos email o teléfono");
+    if (c.rut && !validateRut(c.rut)) errs.push("RUT con formato inválido (ej. 12.345.678-9)");
+    if (c.sexo && !CLIENTE_SEXOS.includes(c.sexo)) errs.push("sexo inválido");
+    if (c.estado_civil && !CLIENTE_ESTADO_CIVIL.includes(c.estado_civil)) errs.push("estado civil inválido");
+    if (c.estado_civil === 'casado' && c.regimen_matrimonial && !CLIENTE_REGIMEN_MATRIMONIAL.includes(c.regimen_matrimonial))
+      errs.push("régimen matrimonial inválido");
+    if (c.tipo_compra && !CLIENTE_TIPO_COMPRA.includes(c.tipo_compra)) errs.push("tipo de compra inválido");
+    if (c.condicion_laboral && !CLIENTE_CONDICION_LABORAL.includes(c.condicion_laboral)) errs.push("condición laboral inválida");
+    if (c.proposito_compra && !CLIENTE_PROPOSITO_COMPRA.includes(c.proposito_compra)) errs.push("propósito de compra inválido");
+    if (c.region && !CHILE_REGIONES.includes(c.region)) errs.push("región chilena inválida");
+    if (c.renta !== undefined && c.renta !== null && c.renta !== '' && isNaN(Number(c.renta)))
+      errs.push("renta debe ser numérica");
+    if (c.fecha_nacimiento) {
+      const d = new Date(c.fecha_nacimiento);
+      if (isNaN(d.getTime())) errs.push("fecha de nacimiento inválida");
+      else if (d > new Date()) errs.push("fecha de nacimiento no puede ser futura");
+    }
     return errs;
   }
 
@@ -236,10 +273,31 @@
     const cliente = {
       id: uid("cl"),
       broker_id: u.id,
+      // Identificación
       nombre: data.nombre.trim(),
+      rut: data.rut ? data.rut.trim() : null,
+      sexo: data.sexo || null,
+      fecha_nacimiento: data.fecha_nacimiento || null,
+      nacionalidad: data.nacionalidad || null,
+      profesion: data.profesion || null,
+      // Contacto
       email: (data.email || "").toLowerCase().trim() || null,
       telefono: data.telefono || null,
-      rut: data.rut || null,
+      // Domicilio
+      direccion_particular: data.direccion_particular || null,
+      comuna: data.comuna || null,
+      region: data.region || null,
+      // Situación civil
+      estado_civil: data.estado_civil || null,
+      regimen_matrimonial: data.estado_civil === 'casado' ? (data.regimen_matrimonial || null) : null,
+      // Situación laboral / financiera
+      condicion_laboral: data.condicion_laboral || null,
+      renta: (data.renta !== undefined && data.renta !== '' && data.renta !== null) ? Number(data.renta) : null,
+      tiene_dicom: parseBoolean(data.tiene_dicom),
+      // Compra
+      tipo_compra: data.tipo_compra || null,
+      proposito_compra: data.proposito_compra || null,
+      // Original
       origen: data.origen || "manual",
       notas: data.notas || "",
       created_at: nowIso(),
@@ -250,6 +308,12 @@
     return cliente;
   }
 
+  function parseBoolean(v) {
+    if (v === true || v === 'true' || v === 'si' || v === 'sí' || v === 'yes' || v === 'on') return true;
+    if (v === false || v === 'false' || v === 'no') return false;
+    return null; // tri-state: null = no respondido
+  }
+
   function updateCliente(id, patch) {
     ensureArr("clientes");
     const u = currentUser();
@@ -258,7 +322,17 @@
     const cli = window.DATA.clientes[i];
     if (u.role !== 'admin' && cli.broker_id !== u.id)
       throw new Error("No tenés permiso para editar este cliente");
-    const updated = { ...cli, ...patch, updated_at: nowIso() };
+
+    // Normalizar campos especiales del patch antes del merge
+    const normalized = { ...patch };
+    if ('tiene_dicom' in normalized) normalized.tiene_dicom = parseBoolean(normalized.tiene_dicom);
+    if ('renta' in normalized) normalized.renta = (normalized.renta !== '' && normalized.renta !== null) ? Number(normalized.renta) : null;
+    // Si estado_civil cambia y deja de ser casado, limpiar regimen
+    if ('estado_civil' in normalized && normalized.estado_civil !== 'casado') {
+      normalized.regimen_matrimonial = null;
+    }
+
+    const updated = { ...cli, ...normalized, updated_at: nowIso() };
     const errors = validateCliente(updated);
     if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
     window.DATA.clientes[i] = updated;
@@ -1177,7 +1251,9 @@
     source, // 'localStorage' o 'seeds'
     ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
     listUsuarios, deleteUsuario, updateUsuario, validateEmail,
-    addCliente, updateCliente, deleteCliente, clientesByBroker, clienteById, validateCliente,
+    addCliente, updateCliente, deleteCliente, clientesByBroker, clienteById, validateCliente, validateRut,
+    CHILE_REGIONES, CLIENTE_SEXOS, CLIENTE_ESTADO_CIVIL, CLIENTE_REGIMEN_MATRIMONIAL,
+    CLIENTE_TIPO_COMPRA, CLIENTE_CONDICION_LABORAL, CLIENTE_PROPOSITO_COMPRA,
     listAllClientes, listBrokers, reassignCliente, reassignCotizacion, reassignReserva,
     addCotizacion, cotizacionesByBroker, cotizacionesByCliente, deleteCotizacion,
     addReserva, cancelReserva, confirmarReserva, escriturarReserva,

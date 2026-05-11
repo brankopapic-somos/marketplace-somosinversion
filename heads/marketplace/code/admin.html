@@ -826,18 +826,104 @@ function clientesAdmin() {
 function modalEditarClienteAdmin(clienteId) {
   const cli = window.Marketplace.clienteById(clienteId);
   if (!cli) { toast('Cliente no existe', 'error'); return; }
+
+  const M = window.Marketplace;
+  const opt = (val, label, current) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`;
+  const lStyle = 'font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;';
+  const fStyle = 'width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;';
+  const sStyle = 'font-size:14px;font-weight:700;color:#1e293b;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;';
+
   const html = `
     <h2>Editar datos del cliente</h2>
-    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Modificás los datos de contacto del cliente. Para cambiar el broker asignado usá <strong>Reasignar</strong>.</p>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Modificás los datos del cliente. Para cambiar el broker asignado usá <strong>Reasignar</strong>.</p>
     <form id="form-edit-cli">
-      <div class="form-grid">
-        <div class="field full"><label>Nombre *</label><input name="nombre" value="${cli.nombre}" required></div>
-        <div class="field"><label>Email</label><input type="email" name="email" value="${cli.email || ''}"></div>
-        <div class="field"><label>Teléfono</label><input type="tel" name="telefono" value="${cli.telefono || ''}"></div>
-        <div class="field"><label>RUT</label><input name="rut" value="${cli.rut || ''}" placeholder="12.345.678-9"></div>
-        <div class="field"><label>Origen</label><input name="origen" value="${cli.origen || 'manual'}"></div>
-        <div class="field full"><label>Notas</label><textarea name="notas">${cli.notas || ''}</textarea></div>
+
+      <h3 style="${sStyle}">Identificación</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="grid-column:1/-1;"><label style="${lStyle}">Nombre *</label><input name="nombre" value="${cli.nombre || ''}" required style="${fStyle}"></div>
+        <div><label style="${lStyle}">RUT *</label><input name="rut" value="${cli.rut || ''}" pattern="[\\d.]+-[\\dkK]" required style="${fStyle}"></div>
+        <div><label style="${lStyle}">Sexo *</label>
+          <select name="sexo" required style="${fStyle}">
+            <option value="">—</option>
+            ${opt('masculino', 'Masculino', cli.sexo)}${opt('femenino', 'Femenino', cli.sexo)}
+            ${opt('otro', 'Otro', cli.sexo)}${opt('no_responde', 'Prefiero no responder', cli.sexo)}
+          </select></div>
+        <div><label style="${lStyle}">Fecha de nacimiento *</label><input type="date" name="fecha_nacimiento" value="${cli.fecha_nacimiento || ''}" required max="${new Date().toISOString().slice(0,10)}" style="${fStyle}"></div>
+        <div><label style="${lStyle}">Nacionalidad *</label><input name="nacionalidad" value="${cli.nacionalidad || 'chilena'}" required style="${fStyle}"></div>
+        <div style="grid-column:1/-1;"><label style="${lStyle}">Profesión *</label><input name="profesion" value="${cli.profesion || ''}" required style="${fStyle}"></div>
       </div>
+
+      <h3 style="${sStyle}">Contacto</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div><label style="${lStyle}">Teléfono *</label><input type="tel" name="telefono" value="${cli.telefono || ''}" required style="${fStyle}"></div>
+        <div><label style="${lStyle}">Email</label><input type="email" name="email" value="${cli.email || ''}" style="${fStyle}"></div>
+      </div>
+
+      <h3 style="${sStyle}">Domicilio</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="grid-column:1/-1;"><label style="${lStyle}">Dirección particular *</label><input name="direccion_particular" value="${cli.direccion_particular || ''}" required style="${fStyle}"></div>
+        <div><label style="${lStyle}">Comuna *</label><input name="comuna" value="${cli.comuna || ''}" required style="${fStyle}"></div>
+        <div><label style="${lStyle}">Región *</label>
+          <select name="region" required style="${fStyle}">
+            <option value="">—</option>
+            ${M.CHILE_REGIONES.map(r => opt(r, r, cli.region)).join('')}
+          </select></div>
+      </div>
+
+      <h3 style="${sStyle}">Situación civil</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div><label style="${lStyle}">Estado civil *</label>
+          <select name="estado_civil" id="sel-ec-admin" required style="${fStyle}">
+            <option value="">—</option>
+            ${opt('soltero','Soltero/a',cli.estado_civil)}${opt('casado','Casado/a',cli.estado_civil)}
+            ${opt('divorciado','Divorciado/a',cli.estado_civil)}${opt('viudo','Viudo/a',cli.estado_civil)}
+          </select></div>
+        <div id="reg-cont-admin" style="display:${cli.estado_civil === 'casado' ? 'block' : 'none'};">
+          <label style="${lStyle}">Régimen matrimonial *</label>
+          <select name="regimen_matrimonial" style="${fStyle}">
+            <option value="">—</option>
+            ${opt('sociedad_conyugal','Sociedad conyugal',cli.regimen_matrimonial)}
+            ${opt('separacion_bienes','Separación de bienes',cli.regimen_matrimonial)}
+            ${opt('participacion_gananciales','Participación en gananciales',cli.regimen_matrimonial)}
+          </select></div>
+      </div>
+
+      <h3 style="${sStyle}">Situación laboral y financiera</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div><label style="${lStyle}">Condición laboral *</label>
+          <select name="condicion_laboral" required style="${fStyle}">
+            <option value="">—</option>
+            ${opt('dependiente','Dependiente',cli.condicion_laboral)}
+            ${opt('independiente','Independiente',cli.condicion_laboral)}
+          </select></div>
+        <div><label style="${lStyle}">Renta líquida (CLP) *</label><input type="number" name="renta" value="${cli.renta ?? ''}" required min="0" style="${fStyle}"></div>
+        <div style="grid-column:1/-1;"><label style="${lStyle}">¿Tiene DICOM? *</label>
+          <div style="display:flex;gap:18px;margin-top:6px;">
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;"><input type="radio" name="tiene_dicom" value="no" ${cli.tiene_dicom === false ? 'checked' : ''} required> No</label>
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;"><input type="radio" name="tiene_dicom" value="si" ${cli.tiene_dicom === true ? 'checked' : ''}> Sí</label>
+          </div></div>
+      </div>
+
+      <h3 style="${sStyle}">Modalidad de compra</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div><label style="${lStyle}">Compra como *</label>
+          <select name="tipo_compra" required style="${fStyle}">
+            <option value="">—</option>
+            ${opt('persona_natural','Persona natural',cli.tipo_compra)}${opt('empresa','Empresa',cli.tipo_compra)}
+          </select></div>
+        <div><label style="${lStyle}">Propósito *</label>
+          <select name="proposito_compra" required style="${fStyle}">
+            <option value="">—</option>
+            ${opt('invertir','Invertir',cli.proposito_compra)}${opt('vivir','Vivir',cli.proposito_compra)}
+          </select></div>
+      </div>
+
+      <h3 style="${sStyle}">Información adicional</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="grid-column:1/-1;"><label style="${lStyle}">Origen</label><input name="origen" value="${cli.origen || 'manual'}" style="${fStyle}"></div>
+        <div style="grid-column:1/-1;"><label style="${lStyle}">Notas</label><textarea name="notas" style="${fStyle};min-height:60px;font-family:inherit;">${cli.notas || ''}</textarea></div>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
         <button type="submit" class="btn btn-primary">Guardar cambios</button>
@@ -845,7 +931,17 @@ function modalEditarClienteAdmin(clienteId) {
     </form>
   `;
   const modal = showModal(html);
+  modal.querySelector('.modal').style.maxWidth = '760px';
   modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+  const ec = modal.querySelector('#sel-ec-admin');
+  const rc = modal.querySelector('#reg-cont-admin');
+  const regSel = rc.querySelector('select[name="regimen_matrimonial"]');
+  ec.addEventListener('change', () => {
+    if (ec.value === 'casado') { rc.style.display = 'block'; regSel.setAttribute('required','required'); }
+    else { rc.style.display = 'none'; regSel.removeAttribute('required'); regSel.value = ''; }
+  });
+
   modal.querySelector('#form-edit-cli').addEventListener('submit', e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target).entries());
@@ -952,11 +1048,22 @@ function modalDetalleCliente(clienteId) {
   const html = `
     <h2>Detalle del cliente</h2>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;font-size:13px;">
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Nombre</div><div style="font-weight:600;">${cli.nombre}</div></div>
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">RUT</div><div>${cli.rut || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Sexo</div><div>${cli.sexo || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Fecha nacimiento</div><div>${cli.fecha_nacimiento || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Nacionalidad</div><div>${cli.nacionalidad || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Profesión</div><div>${cli.profesion || '—'}</div></div>
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Email</div><div>${cli.email || '—'}</div></div>
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Teléfono</div><div>${cli.telefono || '—'}</div></div>
+      <div style="grid-column:1/-1;"><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Domicilio</div><div>${cli.direccion_particular || '—'}${cli.comuna ? `, ${cli.comuna}` : ''}${cli.region ? ` · ${cli.region}` : ''}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Estado civil</div><div>${cli.estado_civil || '—'}${cli.estado_civil === 'casado' && cli.regimen_matrimonial ? ` · ${cli.regimen_matrimonial.replace(/_/g, ' ')}` : ''}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Condición laboral</div><div>${cli.condicion_laboral || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Renta líquida</div><div>${cli.renta ? '$ ' + Number(cli.renta).toLocaleString('es-CL') : '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">DICOM</div><div>${cli.tiene_dicom === true ? '<span style="color:#dc2626;font-weight:600;">Sí</span>' : (cli.tiene_dicom === false ? 'No' : '—')}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Compra como</div><div>${cli.tipo_compra ? cli.tipo_compra.replace(/_/g, ' ') : '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Propósito</div><div>${cli.proposito_compra || '—'}</div></div>
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Origen</div><div>${cli.origen || '—'}</div></div>
       <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Broker actual</div>
         <div>${broker ? `${broker.nombre} <small style="color:#6b7280;">(${broker.email})</small>` : '<span class="badge badge-red">huérfano</span>'}</div></div>
