@@ -457,6 +457,7 @@ function proyectos() {
                 <td>${stateBadge(p.estado_ingesta, 'ingesta')}</td>
                 <td>${unidCount}</td>
                 <td class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-archivos="${p.id}" title="Gestionar archivos del proyecto">📎 Archivos${(() => { const n = window.Marketplace.archivosByProyecto(p.id).length; return n > 0 ? ` (${n})` : ''; })()}</button>
                   <button class="btn btn-ghost btn-sm" data-edit="${p.id}">Editar</button>
                   <button class="btn btn-danger btn-sm" data-del="${p.id}">×</button>
                 </td>
@@ -468,6 +469,7 @@ function proyectos() {
     </div>
   `;
   document.getElementById('btn-add-proyecto').addEventListener('click', () => proyectoForm(null));
+  document.querySelectorAll('[data-archivos]').forEach(b => b.addEventListener('click', () => modalArchivosProyecto(b.dataset.archivos)));
   document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => proyectoForm(b.dataset.edit)));
   document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
     const p = D.proyectos.find(p => p.id === b.dataset.del);
@@ -476,6 +478,249 @@ function proyectos() {
       toast('Proyecto eliminado'); render();
     }
   }));
+}
+
+// =============================================================================
+// ARCHIVOS DE PROYECTO — gestión por proyecto
+// =============================================================================
+const TIPO_ICONOS = {
+  brochure: '📄', imagen: '🖼️', video: '🎥', plano: '📐',
+  recepcion_final: '📋', permiso_edificacion: '⚖️', reglamento: '📜',
+  otro_legal: '📑', otro: '📎'
+};
+
+function fmtBytes(n) {
+  if (!n || n === 0) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function modalArchivosProyecto(proyectoId) {
+  const proyecto = window.DATA.proyectos.find(p => p.id === proyectoId);
+  if (!proyecto) { toast('Proyecto no existe', 'error'); return; }
+  const M = window.Marketplace;
+  const archivos = M.archivosByProyecto(proyectoId);
+  const totalBytes = archivos.reduce((s, a) => s + (a.size_bytes || 0), 0);
+
+  const tiposOptions = M.TIPOS_ARCHIVO_PROYECTO.map(t =>
+    `<option value="${t}">${TIPO_ICONOS[t] || ''} ${M.TIPOS_ARCHIVO_LABELS[t]}</option>`
+  ).join('');
+
+  const html = `
+    <h2 style="margin-bottom:4px;">Archivos del proyecto</h2>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;"><strong>${proyecto.nombre}</strong> · ${proyecto.comuna}</p>
+
+    <div style="background:#f1f5f9;border-radius:8px;padding:10px 14px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+      <div>
+        <strong id="archivos-count">${archivos.length}</strong> archivo${archivos.length !== 1 ? 's' : ''}
+        <span style="color:#6b7280;">·</span>
+        <strong id="archivos-size">${fmtBytes(totalBytes)}</strong> usado
+      </div>
+      <div style="font-size:11px;color:#6b7280;">Máx por archivo: 5 MB · para pesados usá URL</div>
+    </div>
+
+    <!-- Toggle: subir archivo / URL externa -->
+    <div style="margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <button type="button" class="btn btn-primary btn-sm" id="show-upload-form" style="padding:8px;">📤 Subir archivo</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="show-url-form" style="padding:8px;">🔗 Agregar URL externa</button>
+      </div>
+
+      <div id="upload-form" style="background:rgba(46,204,113,0.05);border:1px solid var(--brand-accent);border-radius:8px;padding:14px;display:block;">
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:10px;">Subir archivo</h4>
+        <div class="form-grid">
+          <div class="field"><label>Tipo *</label>
+            <select id="up-tipo" required>${tiposOptions}</select></div>
+          <div class="field"><label>Nombre *</label>
+            <input id="up-nombre" placeholder="ej: Brochure_v2.pdf" required></div>
+          <div class="field full"><label>Descripción</label>
+            <input id="up-desc" placeholder="opcional"></div>
+          <div class="field full">
+            <label>Archivo *</label>
+            <input type="file" id="up-file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.svg,.mp4,.webm,.doc,.docx,.xls,.xlsx,.dwg" style="margin-top:6px;width:100%;padding:8px;border:1px dashed #cbd5e1;border-radius:6px;background:#fff;">
+          </div>
+        </div>
+        <div id="up-preview" style="display:none;margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:6px;font-size:12px;color:#475569;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button type="button" class="btn btn-primary" id="btn-do-upload">Subir</button>
+        </div>
+      </div>
+
+      <div id="url-form" style="background:#fffbeb;border:1px solid var(--brand-secondary);border-radius:8px;padding:14px;display:none;">
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:10px;">Agregar URL externa</h4>
+        <p style="font-size:12px;color:#92400e;margin-bottom:10px;">Recomendado para videos (YouTube, Vimeo) o archivos pesados (Drive, Dropbox).</p>
+        <div class="form-grid">
+          <div class="field"><label>Tipo *</label>
+            <select id="url-tipo" required>${tiposOptions}</select></div>
+          <div class="field"><label>Nombre *</label>
+            <input id="url-nombre" placeholder="ej: Recorrido virtual" required></div>
+          <div class="field full"><label>Descripción</label>
+            <input id="url-desc" placeholder="opcional"></div>
+          <div class="field full"><label>URL *</label>
+            <input type="url" id="url-input" placeholder="https://..." required></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button type="button" class="btn btn-primary" id="btn-do-url">Agregar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lista de archivos -->
+    <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:8px;">Archivos cargados</h4>
+    <div id="archivos-list">${renderArchivosList(archivos, M)}</div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="cancel">Cerrar</button>
+    </div>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('.modal').style.maxWidth = '760px';
+  modal.querySelector('#cancel').addEventListener('click', () => { modal.remove(); proyectos(); });
+
+  // Toggle entre upload / URL
+  const upForm = modal.querySelector('#upload-form');
+  const urlForm = modal.querySelector('#url-form');
+  modal.querySelector('#show-upload-form').addEventListener('click', () => {
+    upForm.style.display = 'block'; urlForm.style.display = 'none';
+    modal.querySelector('#show-upload-form').classList.remove('btn-ghost');
+    modal.querySelector('#show-upload-form').classList.add('btn-primary');
+    modal.querySelector('#show-url-form').classList.remove('btn-primary');
+    modal.querySelector('#show-url-form').classList.add('btn-ghost');
+  });
+  modal.querySelector('#show-url-form').addEventListener('click', () => {
+    upForm.style.display = 'none'; urlForm.style.display = 'block';
+    modal.querySelector('#show-url-form').classList.remove('btn-ghost');
+    modal.querySelector('#show-url-form').classList.add('btn-primary');
+    modal.querySelector('#show-upload-form').classList.remove('btn-primary');
+    modal.querySelector('#show-upload-form').classList.add('btn-ghost');
+  });
+
+  // File preview
+  let uploadedDataUrl = null;
+  let uploadedFilename = null;
+  const fileInput = modal.querySelector('#up-file');
+  const preview = modal.querySelector('#up-preview');
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) { preview.style.display = 'none'; uploadedDataUrl = null; return; }
+    if (file.size > 5 * 1024 * 1024) {
+      toast(`Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)} MB). Máximo: 5 MB. Para pesados usá URL externa.`, 'error');
+      fileInput.value = ''; return;
+    }
+    try {
+      uploadedDataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = e => resolve(e.target.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      uploadedFilename = file.name;
+      preview.style.display = 'block';
+      preview.innerHTML = `✓ <strong>${file.name}</strong> · ${fmtBytes(file.size)} · ${file.type}`;
+      // Auto-rellenar nombre si está vacío
+      const nameInput = modal.querySelector('#up-nombre');
+      if (!nameInput.value) nameInput.value = file.name;
+    } catch (err) {
+      toast('Error leyendo archivo: ' + err.message, 'error');
+    }
+  });
+
+  const refreshList = () => {
+    const updated = M.archivosByProyecto(proyectoId);
+    const totalB = updated.reduce((s, a) => s + (a.size_bytes || 0), 0);
+    modal.querySelector('#archivos-count').textContent = updated.length;
+    modal.querySelector('#archivos-size').textContent = fmtBytes(totalB);
+    modal.querySelector('#archivos-list').innerHTML = renderArchivosList(updated, M);
+    attachArchivosListHandlers(modal, proyectoId, refreshList);
+  };
+
+  // Upload submit
+  modal.querySelector('#btn-do-upload').addEventListener('click', () => {
+    const tipo = modal.querySelector('#up-tipo').value;
+    const nombre = modal.querySelector('#up-nombre').value.trim();
+    const descripcion = modal.querySelector('#up-desc').value.trim();
+    if (!uploadedDataUrl) { toast('Seleccioná un archivo', 'error'); return; }
+    if (!nombre) { toast('Nombre requerido', 'error'); return; }
+    try {
+      M.addArchivoProyecto({ proyecto_id: proyectoId, tipo, nombre, descripcion, dataurl: uploadedDataUrl });
+      toast('Archivo subido');
+      // Limpiar form
+      fileInput.value = ''; uploadedDataUrl = null;
+      modal.querySelector('#up-nombre').value = '';
+      modal.querySelector('#up-desc').value = '';
+      preview.style.display = 'none';
+      refreshList();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
+  // URL submit
+  modal.querySelector('#btn-do-url').addEventListener('click', () => {
+    const tipo = modal.querySelector('#url-tipo').value;
+    const nombre = modal.querySelector('#url-nombre').value.trim();
+    const descripcion = modal.querySelector('#url-desc').value.trim();
+    const urlVal = modal.querySelector('#url-input').value.trim();
+    if (!nombre) { toast('Nombre requerido', 'error'); return; }
+    if (!urlVal) { toast('URL requerida', 'error'); return; }
+    try {
+      M.addArchivoProyecto({ proyecto_id: proyectoId, tipo, nombre, descripcion, url: urlVal });
+      toast('URL agregada');
+      modal.querySelector('#url-nombre').value = '';
+      modal.querySelector('#url-desc').value = '';
+      modal.querySelector('#url-input').value = '';
+      refreshList();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
+  attachArchivosListHandlers(modal, proyectoId, refreshList);
+}
+
+function renderArchivosList(archivos, M) {
+  if (archivos.length === 0) {
+    return '<p style="color:#9ca3af;font-size:13px;padding:14px 0;text-align:center;">Sin archivos cargados.</p>';
+  }
+  return `<div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;">
+    ${archivos.map(a => {
+      const icon = TIPO_ICONOS[a.tipo] || '📎';
+      const label = M.TIPOS_ARCHIVO_LABELS[a.tipo] || a.tipo;
+      const isUrl = a.fuente === 'url';
+      const link = isUrl ? a.url : a.dataurl;
+      const sizeStr = isUrl ? 'URL externa' : fmtBytes(a.size_bytes);
+      return `
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
+          <div style="font-size:22px;flex-shrink:0;">${icon}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--brand-accent-strong);background:var(--brand-accent-soft);padding:2px 6px;border-radius:3px;">${label}</span>
+              <strong style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.nombre}</strong>
+            </div>
+            ${a.descripcion ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${a.descripcion}</div>` : ''}
+            <div style="font-size:11px;color:#9ca3af;margin-top:2px;">
+              ${sizeStr} · ${new Date(a.uploaded_at).toLocaleDateString('es-CL')}
+              ${isUrl ? '· 🔗 link externo' : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <a href="${link}" target="_blank" rel="noopener" ${isUrl ? '' : `download="${a.nombre}"`} class="btn btn-ghost btn-sm" style="text-decoration:none;">${isUrl ? 'Abrir' : 'Ver'}</a>
+            <button class="btn btn-ghost btn-sm" data-del-arch="${a.id}" style="color:#dc2626;">×</button>
+          </div>
+        </div>
+      `;
+    }).join('')}
+  </div>`;
+}
+
+function attachArchivosListHandlers(modal, proyectoId, refreshList) {
+  modal.querySelectorAll('[data-del-arch]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (!confirm('¿Eliminar este archivo?')) return;
+      try {
+        window.Marketplace.deleteArchivoProyecto(b.dataset.delArch);
+        toast('Archivo eliminado');
+        refreshList();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
 }
 
 function proyectoForm(id) {

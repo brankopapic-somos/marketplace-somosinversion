@@ -843,6 +843,146 @@
   }
 
   // ---------------------------------------------------------------------------
+  // CRUD: Archivos de Proyecto
+  // brochure, imagen, video, plano, recepcion_final, permiso_edificacion,
+  // reglamento, otro_legal, otro
+  // Cada archivo puede ser: upload (dataurl) o URL externa
+  // ---------------------------------------------------------------------------
+  const TIPOS_ARCHIVO_PROYECTO = [
+    "brochure", "imagen", "video", "plano",
+    "recepcion_final", "permiso_edificacion", "reglamento",
+    "otro_legal", "otro"
+  ];
+  const TIPOS_ARCHIVO_LABELS = {
+    brochure: "Brochure",
+    imagen: "Imagen",
+    video: "Video",
+    plano: "Plano",
+    recepcion_final: "Recepción final",
+    permiso_edificacion: "Permiso de edificación",
+    reglamento: "Reglamento",
+    otro_legal: "Otro documento legal",
+    otro: "Otro"
+  };
+  const ARCHIVO_PROYECTO_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+
+  function addArchivoProyecto(data) {
+    ensureArr("archivos_proyecto");
+    const u = currentUser();
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo admin puede subir archivos de proyecto");
+    if (!data.proyecto_id) throw new Error("proyecto_id requerido");
+    if (!data.tipo || !TIPOS_ARCHIVO_PROYECTO.includes(data.tipo))
+      throw new Error("Tipo de archivo inválido");
+    if (!data.nombre || data.nombre.trim().length < 1)
+      throw new Error("Nombre requerido");
+
+    const proyecto = window.DATA.proyectos.find(p => p.id === data.proyecto_id);
+    if (!proyecto) throw new Error("Proyecto no existe");
+
+    // Validar fuente: upload (dataurl) o url externa
+    let fuente = data.fuente;
+    let dataurl = null;
+    let urlExterna = null;
+    let mimetype = null;
+    let sizeBytes = 0;
+
+    if (data.dataurl && data.dataurl.startsWith("data:")) {
+      fuente = "upload";
+      dataurl = data.dataurl;
+      // Validar mime + tamaño
+      const mimeMatch = dataurl.match(/^data:([^;]+);/);
+      mimetype = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+      const base64Part = dataurl.split(",")[1] || "";
+      sizeBytes = Math.floor((base64Part.length * 3) / 4);
+      if (sizeBytes > ARCHIVO_PROYECTO_MAX_BYTES) {
+        throw new Error(`Archivo demasiado grande (${(sizeBytes/1024/1024).toFixed(1)} MB). Máximo: 5 MB. Para archivos pesados (videos), usá URL externa.`);
+      }
+    } else if (data.url) {
+      fuente = "url";
+      urlExterna = data.url.trim();
+      // Validación básica de URL
+      try {
+        const parsed = new URL(urlExterna);
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+          throw new Error("URL debe usar http o https");
+        }
+      } catch (e) {
+        throw new Error("URL inválida: " + e.message);
+      }
+      mimetype = data.mimetype || null;
+    } else {
+      throw new Error("Debe proveer un archivo (upload) o una URL externa");
+    }
+
+    const archivo = {
+      id: uid("arch"),
+      proyecto_id: data.proyecto_id,
+      tipo: data.tipo,
+      nombre: data.nombre.trim(),
+      descripcion: data.descripcion || "",
+      fuente,
+      dataurl,
+      url: urlExterna,
+      mimetype,
+      size_bytes: sizeBytes,
+      uploaded_at: nowIso(),
+      uploaded_by: u.id
+    };
+    window.DATA.archivos_proyecto.push(archivo);
+    persist();
+    return archivo;
+  }
+
+  function updateArchivoProyecto(id, patch) {
+    ensureArr("archivos_proyecto");
+    const u = currentUser();
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo admin puede editar archivos");
+    const i = window.DATA.archivos_proyecto.findIndex(a => a.id === id);
+    if (i < 0) throw new Error("Archivo no encontrado");
+    // Solo permitir editar campos meta (nombre, descripcion, tipo) — no la fuente
+    const allowed = ["nombre", "descripcion", "tipo"];
+    const sanitized = {};
+    for (const key of allowed) {
+      if (patch[key] !== undefined) sanitized[key] = patch[key];
+    }
+    if (sanitized.tipo && !TIPOS_ARCHIVO_PROYECTO.includes(sanitized.tipo))
+      throw new Error("Tipo inválido");
+    window.DATA.archivos_proyecto[i] = {
+      ...window.DATA.archivos_proyecto[i],
+      ...sanitized,
+      updated_at: nowIso()
+    };
+    persist();
+    return window.DATA.archivos_proyecto[i];
+  }
+
+  function deleteArchivoProyecto(id) {
+    ensureArr("archivos_proyecto");
+    const u = currentUser();
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo admin puede eliminar archivos");
+    const i = window.DATA.archivos_proyecto.findIndex(a => a.id === id);
+    if (i < 0) return false;
+    window.DATA.archivos_proyecto.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  function archivosByProyecto(proyectoId) {
+    ensureArr("archivos_proyecto");
+    return window.DATA.archivos_proyecto
+      .filter(a => a.proyecto_id === proyectoId)
+      .sort((a, b) => (a.tipo || '').localeCompare(b.tipo || ''));
+  }
+
+  function archivoById(id) {
+    ensureArr("archivos_proyecto");
+    return window.DATA.archivos_proyecto.find(a => a.id === id);
+  }
+
+  // ---------------------------------------------------------------------------
   // CRUD: Proyectos
   // ---------------------------------------------------------------------------
   function addProyecto(p) {
@@ -902,6 +1042,10 @@
     window.DATA.unidades = window.DATA.unidades.filter(u => u.proyecto_id !== id);
     // Eliminar relaciones de condiciones
     window.DATA.proyectoCondiciones = window.DATA.proyectoCondiciones.filter(pc => pc.proyecto_id !== id);
+    // Eliminar archivos del proyecto (cascade)
+    if (window.DATA.archivos_proyecto) {
+      window.DATA.archivos_proyecto = window.DATA.archivos_proyecto.filter(a => a.proyecto_id !== id);
+    }
     persist();
     return true;
   }
@@ -1329,6 +1473,9 @@
     reservasByBroker, reservasByCliente, reservaActivaByUnidad,
     RESERVA_ESTADOS, RESERVA_METODOS, COMPROBANTE_MAX_BYTES, COMPROBANTE_MIMETYPES,
     addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
+    addArchivoProyecto, updateArchivoProyecto, deleteArchivoProyecto,
+    archivosByProyecto, archivoById,
+    TIPOS_ARCHIVO_PROYECTO, TIPOS_ARCHIVO_LABELS, ARCHIVO_PROYECTO_MAX_BYTES,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
     setCondicionesProyecto,

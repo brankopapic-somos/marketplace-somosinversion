@@ -776,6 +776,44 @@ function renderProyecto(slug) {
       </div>
     ` : ''}
 
+    ${(() => {
+      const archivos = window.Marketplace.archivosByProyecto(p.id);
+      if (archivos.length === 0) return '';
+      const TIPO_ICONOS = {
+        brochure: '📄', imagen: '🖼️', video: '🎥', plano: '📐',
+        recepcion_final: '📋', permiso_edificacion: '⚖️', reglamento: '📜',
+        otro_legal: '📑', otro: '📎'
+      };
+      const labels = window.Marketplace.TIPOS_ARCHIVO_LABELS;
+      return `
+        <div class="section">
+          <h2>Documentos del proyecto <small style="font-size:13px;color:#6b7280;font-weight:400;">(${archivos.length})</small></h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-top:10px;">
+            ${archivos.map(a => {
+              const icon = TIPO_ICONOS[a.tipo] || '📎';
+              const isUrl = a.fuente === 'url';
+              const link = isUrl ? a.url : a.dataurl;
+              const sizeStr = isUrl ? 'Link externo' : (a.size_bytes ? ((a.size_bytes < 1024*1024) ? (a.size_bytes/1024).toFixed(0) + ' KB' : (a.size_bytes/1024/1024).toFixed(2) + ' MB') : '');
+              return `
+                <a href="${link}" target="_blank" rel="noopener" ${isUrl ? '' : `download="${a.nombre}"`}
+                   style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--color-border);border-radius:10px;padding:12px;text-decoration:none;color:inherit;transition:all 0.15s;"
+                   onmouseover="this.style.borderColor='var(--brand-accent)';this.style.boxShadow='0 0 0 1px var(--brand-accent),0 4px 12px rgba(46,204,113,0.15)';"
+                   onmouseout="this.style.borderColor='var(--color-border)';this.style.boxShadow='none';">
+                  <div style="font-size:28px;flex-shrink:0;">${icon}</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--brand-accent-strong);">${labels[a.tipo] || a.tipo}</div>
+                    <div style="font-size:13px;font-weight:600;color:#0a0e1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">${a.nombre}</div>
+                    ${a.descripcion ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.descripcion}</div>` : ''}
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${sizeStr}${isUrl ? ' · 🔗' : ''}</div>
+                  </div>
+                </a>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    })()}
+
     <div class="section">
       <h2>Unidades (${unidades.length})</h2>
       ${unidades.length === 0 ? '<p style="color:#6b7280">Sin unidades cargadas.</p>' : `

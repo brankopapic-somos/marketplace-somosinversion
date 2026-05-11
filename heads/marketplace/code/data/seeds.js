@@ -322,5 +322,11 @@ window.DATA = {
   // Reservas — siempre vinculadas a (broker_id, cliente_id, unidad_id)
   // Cambian el estado de la unidad según el flujo definido en el repo.
   // ---------------------------------------------------------------------------
-  reservas: []
+  reservas: [],
+
+  // ---------------------------------------------------------------------------
+  // Archivos por proyecto — brochures, imágenes, videos, planos, legales
+  // Se gestionan desde admin · accesibles en read-only desde broker
+  // ---------------------------------------------------------------------------
+  archivos_proyecto: []
 };
