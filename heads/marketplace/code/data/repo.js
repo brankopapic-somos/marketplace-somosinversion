@@ -281,6 +281,96 @@
     return window.DATA.clientes.find(c => c.id === id);
   }
 
+  function listAllClientes() {
+    ensureArr("clientes");
+    return [...window.DATA.clientes];
+  }
+
+  function listBrokers() {
+    ensureArr("usuarios");
+    return window.DATA.usuarios.filter(u => u.activo);
+  }
+
+  /**
+   * Reasigna un cliente de un broker a otro. Solo admin.
+   * @param {string} clienteId
+   * @param {string} newBrokerId
+   * @param {object} options - { reassignHistory: boolean }
+   *   reassignHistory: si true, mueve también cotizaciones y reservas a nuevo broker
+   *                    si false, solo el cliente cambia, historial queda con broker original (audit)
+   */
+  function reassignCliente(clienteId, newBrokerId, options = {}) {
+    ensureArr("clientes");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede reasignar clientes");
+
+    const cli = clienteById(clienteId);
+    if (!cli) throw new Error("Cliente no existe");
+
+    const newBroker = (window.DATA.usuarios || []).find(x => x.id === newBrokerId);
+    if (!newBroker) throw new Error("Broker destino no existe");
+    if (!newBroker.activo) throw new Error("Broker destino está inactivo");
+
+    if (cli.broker_id === newBrokerId)
+      throw new Error("El cliente ya está asignado a ese broker");
+
+    const oldBrokerId = cli.broker_id;
+
+    // Update cliente
+    const idx = window.DATA.clientes.findIndex(c => c.id === clienteId);
+    window.DATA.clientes[idx] = { ...cli, broker_id: newBrokerId, updated_at: nowIso() };
+
+    const movidas = { cotizaciones: 0, reservas: 0 };
+
+    if (options.reassignHistory) {
+      ensureArr("cotizaciones");
+      window.DATA.cotizaciones.forEach((c, i) => {
+        if (c.cliente_id === clienteId) {
+          window.DATA.cotizaciones[i] = { ...c, broker_id: newBrokerId };
+          movidas.cotizaciones++;
+        }
+      });
+      ensureArr("reservas");
+      window.DATA.reservas.forEach((r, i) => {
+        if (r.cliente_id === clienteId) {
+          window.DATA.reservas[i] = { ...r, broker_id: newBrokerId, updated_at: nowIso() };
+          movidas.reservas++;
+        }
+      });
+    }
+
+    persist();
+    return { cliente: window.DATA.clientes[idx], oldBrokerId, newBrokerId, movidas };
+  }
+
+  /** Para admin: mueve una cotización específica a otro broker. */
+  function reassignCotizacion(cotId, newBrokerId) {
+    ensureArr("cotizaciones");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede reasignar cotizaciones");
+    const idx = window.DATA.cotizaciones.findIndex(c => c.id === cotId);
+    if (idx < 0) throw new Error("Cotización no existe");
+    const broker = (window.DATA.usuarios || []).find(x => x.id === newBrokerId && x.activo);
+    if (!broker) throw new Error("Broker destino inválido");
+    window.DATA.cotizaciones[idx] = { ...window.DATA.cotizaciones[idx], broker_id: newBrokerId };
+    persist();
+    return window.DATA.cotizaciones[idx];
+  }
+
+  /** Para admin: mueve una reserva específica a otro broker. */
+  function reassignReserva(reservaId, newBrokerId) {
+    ensureArr("reservas");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede reasignar reservas");
+    const idx = window.DATA.reservas.findIndex(r => r.id === reservaId);
+    if (idx < 0) throw new Error("Reserva no existe");
+    const broker = (window.DATA.usuarios || []).find(x => x.id === newBrokerId && x.activo);
+    if (!broker) throw new Error("Broker destino inválido");
+    window.DATA.reservas[idx] = { ...window.DATA.reservas[idx], broker_id: newBrokerId, updated_at: nowIso() };
+    persist();
+    return window.DATA.reservas[idx];
+  }
+
   // ---------------------------------------------------------------------------
   // CRUD: Cotizaciones — siempre vinculadas a (broker_id, cliente_id, unidad_id)
   // ---------------------------------------------------------------------------
@@ -1037,6 +1127,7 @@
     ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
     listUsuarios, deleteUsuario, updateUsuario, validateEmail,
     addCliente, updateCliente, deleteCliente, clientesByBroker, clienteById, validateCliente,
+    listAllClientes, listBrokers, reassignCliente, reassignCotizacion, reassignReserva,
     addCotizacion, cotizacionesByBroker, cotizacionesByCliente, deleteCotizacion,
     addReserva, cancelReserva, confirmarReserva, escriturarReserva,
     reservasByBroker, reservasByCliente, reservaActivaByUnidad, RESERVA_ESTADOS,

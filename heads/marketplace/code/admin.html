@@ -125,6 +125,7 @@
     <button data-tab="proyectos">Proyectos</button>
     <button data-tab="unidades">Unidades</button>
     <button data-tab="condiciones">Condiciones</button>
+    <button data-tab="clientes-admin">Clientes</button>
     <button data-tab="ingesta">Ingesta</button>
     <button data-tab="auditoria">Auditoría</button>
     <button data-tab="datos">Datos</button>
@@ -243,7 +244,7 @@ function render() {
     });
   }
 
-  const renderers = { dashboard, inmobiliarias, proyectos, unidades, condiciones, ingesta, auditoria, datos };
+  const renderers = { dashboard, inmobiliarias, proyectos, unidades, condiciones, "clientes-admin": clientesAdmin, ingesta, auditoria, datos };
   renderers[activeTab]();
 }
 
@@ -256,6 +257,10 @@ function dashboard() {
   const totalUnidadesDisponibles = D.unidades.filter(u => u.estado === 'disponible').length;
   const proyectosTimeout = D.proyectos.filter(p => p.estado_ingesta === 'timeout').length;
   const proyectosAgotados = D.proyectos.filter(p => p.estado_negocio === 'agotado').length;
+  const totalClientes = (D.clientes || []).length;
+  const totalReservas = (D.reservas || []).length;
+  const reservasActivas = (D.reservas || []).filter(r => !['cancelada','escriturada'].includes(r.estado)).length;
+  const totalBrokers = (D.usuarios || []).filter(u => u.activo).length;
 
   tabContent.innerHTML = `
     <div class="stats-grid">
@@ -265,6 +270,9 @@ function dashboard() {
       <div class="stat-box"><div class="lbl">Disponibles</div><div class="val" style="color:#16a34a;">${totalUnidadesDisponibles}</div></div>
       <div class="stat-box"><div class="lbl">Agotados</div><div class="val" style="color:#dc2626;">${proyectosAgotados}</div></div>
       <div class="stat-box"><div class="lbl">Timeout ingesta</div><div class="val" style="color:#f59e0b;">${proyectosTimeout}</div></div>
+      <div class="stat-box"><div class="lbl">Usuarios activos</div><div class="val">${totalBrokers}</div></div>
+      <div class="stat-box"><div class="lbl">Clientes</div><div class="val">${totalClientes}</div></div>
+      <div class="stat-box"><div class="lbl">Reservas</div><div class="val">${totalReservas} <small style="font-size:14px;color:#f59e0b;font-weight:500;">(${reservasActivas} activas)</small></div></div>
       <div class="stat-box"><div class="lbl">Ingestas registradas</div><div class="val">${audit.length}</div></div>
     </div>
 
@@ -714,6 +722,240 @@ function condiciones() {
       toast('Condiciones actualizadas');
     });
   });
+}
+
+// =============================================================================
+// CLIENTES (ADMIN) — Vista global con reasignación entre brokers
+// =============================================================================
+function clientesAdmin() {
+  const clientes = window.Marketplace.listAllClientes();
+  const usuarios = window.DATA.usuarios || [];
+  const filterBroker = window._adminFilterBroker || '';
+  const filtered = filterBroker
+    ? clientes.filter(c => c.broker_id === filterBroker)
+    : clientes;
+
+  const userById = id => usuarios.find(u => u.id === id);
+
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Clientes (vista global, ${filtered.length}${filterBroker ? ' de ' + clientes.length : ''})
+      </h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:16px;">
+        Vista admin de TODOS los clientes del marketplace. Acción <strong>Reasignar</strong> permite mover un cliente de un broker a otro,
+        con opción de mover también su historial (cotizaciones + reservas) o conservar la auditoría.
+      </p>
+
+      <div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:12px;font-weight:600;color:#374151;">Filtrar por broker:</label>
+        <select id="filter-broker-admin" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;">
+          <option value="">Todos los brokers (${clientes.length})</option>
+          ${usuarios.map(u => {
+            const cnt = clientes.filter(c => c.broker_id === u.id).length;
+            return `<option value="${u.id}" ${filterBroker === u.id ? 'selected' : ''}>${u.nombre} · ${u.role} (${cnt})</option>`;
+          }).join('')}
+          <option value="__orphan__" ${filterBroker === '__orphan__' ? 'selected' : ''}>Huérfanos (broker eliminado)</option>
+        </select>
+      </div>
+
+      ${filtered.length === 0 ? '<p style="color:#6b7280;padding:14px;">Sin clientes para mostrar.</p>' : `
+      <table>
+        <thead>
+          <tr>
+            <th>Cliente</th><th>Contacto</th><th>Broker actual</th><th>Cotizaciones</th><th>Reservas</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(filterBroker === '__orphan__' ? filtered.filter(c => !userById(c.broker_id)) : filtered).map(c => {
+            const broker = userById(c.broker_id);
+            const cots = (window.DATA.cotizaciones || []).filter(x => x.cliente_id === c.id);
+            const rsvs = (window.DATA.reservas || []).filter(x => x.cliente_id === c.id);
+            const rsvsActivas = rsvs.filter(r => !['cancelada','escriturada'].includes(r.estado));
+            return `
+              <tr>
+                <td>
+                  <strong>${c.nombre}</strong>
+                  ${c.rut ? `<br><small style="color:#6b7280;">${c.rut}</small>` : ''}
+                </td>
+                <td style="font-size:13px;color:#374151;">
+                  ${c.email ? c.email + '<br>' : ''}${c.telefono || ''}
+                </td>
+                <td>
+                  ${broker ? `
+                    <strong>${broker.nombre}</strong>
+                    <br><small style="color:#6b7280;">${broker.email}</small>
+                    <br>${broker.role === 'admin' ? '<span class="badge badge-red">admin</span>' : '<span class="badge badge-green">broker</span>'}
+                  ` : '<span class="badge badge-red">huérfano</span><br><small style="color:#6b7280;">broker eliminado</small>'}
+                </td>
+                <td style="text-align:center;">${cots.length}</td>
+                <td style="text-align:center;">${rsvs.length} ${rsvsActivas.length > 0 ? `<br><small style="color:#f59e0b;">${rsvsActivas.length} activa(s)</small>` : ''}</td>
+                <td class="row-actions">
+                  <button class="btn btn-primary btn-sm" data-reassign="${c.id}">Reasignar</button>
+                  <button class="btn btn-ghost btn-sm" data-detail="${c.id}">Detalle</button>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+      `}
+    </div>
+  `;
+
+  document.getElementById('filter-broker-admin').addEventListener('change', e => {
+    window._adminFilterBroker = e.target.value;
+    clientesAdmin();
+  });
+
+  document.querySelectorAll('[data-reassign]').forEach(b =>
+    b.addEventListener('click', () => modalReasignarCliente(b.dataset.reassign)));
+  document.querySelectorAll('[data-detail]').forEach(b =>
+    b.addEventListener('click', () => modalDetalleCliente(b.dataset.detail)));
+}
+
+function modalReasignarCliente(clienteId) {
+  const cli = window.Marketplace.clienteById(clienteId);
+  const usuarios = window.DATA.usuarios || [];
+  const brokerActual = usuarios.find(u => u.id === cli.broker_id);
+  const cotsCount = (window.DATA.cotizaciones || []).filter(c => c.cliente_id === clienteId).length;
+  const reservas = (window.DATA.reservas || []).filter(r => r.cliente_id === clienteId);
+  const reservasActivas = reservas.filter(r => !['cancelada','escriturada'].includes(r.estado)).length;
+  const hasHistory = cotsCount > 0 || reservas.length > 0;
+
+  const html = `
+    <h2>Reasignar cliente</h2>
+
+    <div style="background:#f9fafb;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:18px;">
+      <div style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Cliente</div>
+      <div style="font-size:16px;font-weight:600;">${cli.nombre}</div>
+      <div style="font-size:13px;color:#374151;margin-top:4px;">
+        ${cli.email || ''} ${cli.telefono ? '· ' + cli.telefono : ''}
+      </div>
+      <div style="margin-top:10px;font-size:13px;">
+        <span style="color:#6b7280;">Broker actual:</span>
+        ${brokerActual ? `<strong>${brokerActual.nombre}</strong> (${brokerActual.email})` : '<span class="badge badge-red">huérfano</span>'}
+      </div>
+      ${hasHistory ? `
+        <div style="margin-top:10px;font-size:13px;display:flex;gap:18px;flex-wrap:wrap;">
+          <div>📋 Cotizaciones: <strong>${cotsCount}</strong></div>
+          <div>🔒 Reservas: <strong>${reservas.length}</strong> ${reservasActivas > 0 ? `(${reservasActivas} activa${reservasActivas !== 1 ? 's' : ''})` : ''}</div>
+        </div>
+      ` : '<div style="margin-top:10px;font-size:13px;color:#6b7280;">Sin historial · reasignación limpia.</div>'}
+    </div>
+
+    <form id="form-reassign">
+      <div class="field">
+        <label>Nuevo broker *</label>
+        <select name="newBrokerId" required>
+          <option value="">— Seleccionar —</option>
+          ${usuarios.filter(u => u.activo && u.id !== cli.broker_id).map(u =>
+            `<option value="${u.id}">${u.nombre} · ${u.email} · <em>${u.role}</em></option>`
+          ).join('')}
+        </select>
+      </div>
+
+      ${hasHistory ? `
+        <div style="margin-top:14px;padding:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;">
+            <input type="checkbox" name="reassignHistory" style="margin-top:3px;">
+            <div>
+              <div style="font-weight:600;color:#92400e;font-size:14px;">Reasignar también historial</div>
+              <div style="font-size:12px;color:#78350f;margin-top:4px;line-height:1.4;">
+                Si lo marcás, las <strong>${cotsCount}</strong> cotización(es) y <strong>${reservas.length}</strong> reserva(s)
+                se atribuirán al nuevo broker (incluye activas y cerradas).
+                Si lo dejás sin marcar, el historial conserva la atribución al broker actual (recomendado para auditoría).
+              </div>
+            </div>
+          </label>
+        </div>
+      ` : ''}
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Reasignar</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-reassign').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const newBrokerId = fd.get('newBrokerId');
+    const reassignHistory = fd.get('reassignHistory') === 'on';
+    try {
+      const result = window.Marketplace.reassignCliente(clienteId, newBrokerId, { reassignHistory });
+      const msg = reassignHistory && hasHistory
+        ? `Cliente reasignado. Movidos: ${result.movidas.cotizaciones} cotización(es), ${result.movidas.reservas} reserva(s).`
+        : `Cliente reasignado. Historial conservado con broker original.`;
+      modal.remove();
+      toast(msg);
+      clientesAdmin();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+function modalDetalleCliente(clienteId) {
+  const cli = window.Marketplace.clienteById(clienteId);
+  const usuarios = window.DATA.usuarios || [];
+  const broker = usuarios.find(u => u.id === cli.broker_id);
+  const cots = (window.DATA.cotizaciones || []).filter(c => c.cliente_id === clienteId);
+  const reservas = (window.DATA.reservas || []).filter(r => r.cliente_id === clienteId);
+
+  const html = `
+    <h2>Detalle del cliente</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Nombre</div><div style="font-weight:600;">${cli.nombre}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">RUT</div><div>${cli.rut || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Email</div><div>${cli.email || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Teléfono</div><div>${cli.telefono || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Origen</div><div>${cli.origen || '—'}</div></div>
+      <div><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Broker actual</div>
+        <div>${broker ? `${broker.nombre} <small style="color:#6b7280;">(${broker.email})</small>` : '<span class="badge badge-red">huérfano</span>'}</div></div>
+      <div style="grid-column:1/-1;"><div style="font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Notas</div>
+        <div style="font-size:13px;color:#374151;background:#f9fafb;padding:8px;border-radius:6px;margin-top:4px;white-space:pre-wrap;">${cli.notas || '—'}</div></div>
+    </div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Cotizaciones (${cots.length})</h3>
+    ${cots.length === 0 ? '<p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Sin cotizaciones.</p>' : `
+      <div style="max-height:200px;overflow-y:auto;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:6px;">
+        <table style="font-size:12px;">
+          <thead><tr><th>Ref</th><th>Broker</th><th>Pie</th><th>Plazo</th><th>Vigencia</th></tr></thead>
+          <tbody>
+            ${cots.map(c => {
+              const b = usuarios.find(u => u.id === c.broker_id);
+              return `<tr><td><code>${c.referencia}</code></td><td>${b ? b.nombre : '—'}</td><td>${c.pie_porcentaje}%</td><td>${c.plazo_meses}m</td><td>${c.valida_hasta}</td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Reservas (${reservas.length})</h3>
+    ${reservas.length === 0 ? '<p style="color:#6b7280;font-size:13px;">Sin reservas.</p>' : `
+      <div style="max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;">
+        <table style="font-size:12px;">
+          <thead><tr><th>Ref</th><th>Broker</th><th>Estado</th><th>Vence</th></tr></thead>
+          <tbody>
+            ${reservas.map(r => {
+              const b = usuarios.find(u => u.id === r.broker_id);
+              return `<tr><td><code>${r.referencia}</code></td><td>${b ? b.nombre : '—'}</td><td>${r.estado}</td><td>${r.fecha_vencimiento}</td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="cancel">Cerrar</button>
+    </div>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
 }
 
 // =============================================================================
