@@ -356,6 +356,7 @@
 
 <script src="data/seeds.js"></script>
 <script src="data/repo.js"></script>
+<script src="assets/vendor/jspdf.umd.min.js"></script>
 <script>
 // =============================================================================
 // AUTH GUARD — sin sesión, redirige al landing
@@ -1381,6 +1382,7 @@ function renderCotizaciones() {
                   <td style="padding:10px 16px;"><strong>$ ${fmtClp(c.dividendo_estimado_clp)}</strong></td>
                   <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${c.valida_hasta}</td>
                   <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
+                    <button class="btn btn-primary" data-pdf-cot="${c.id}" style="padding:4px 10px;font-size:12px;">📄 PDF</button>
                     ${un ? `<a href="#/unidad/${un.id}" class="btn btn-ghost" style="padding:4px 10px;font-size:12px;">Ver unidad</a>` : ''}
                     <button class="btn btn-ghost" data-del-cot="${c.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">×</button>
                   </td>
@@ -1399,6 +1401,12 @@ function renderCotizaciones() {
       showToast('Cotización eliminada');
       renderCotizaciones();
     } catch (err) { showToast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-pdf-cot]').forEach(b => b.addEventListener('click', async () => {
+    try {
+      const filename = await generarPdfCotizacion(b.dataset.pdfCot);
+      if (filename) showToast(`PDF descargado: ${filename}`);
+    } catch (err) { showToast('Error generando PDF: ' + err.message, 'error'); }
   }));
 }
 
@@ -1530,7 +1538,11 @@ function modalAsignarCotizacion(unidad, calculo) {
         total_clp: calculo.pagoTotalUf * calculo.ufClp
       });
       modal.remove();
-      showToast(`Cotización ${cot.referencia} guardada`);
+      showToast(`Cotización ${cot.referencia} guardada · descargando PDF...`);
+      // Auto-descarga del PDF formal
+      generarPdfCotizacion(cot.id).catch(err =>
+        showToast('Cotización guardada, pero falló el PDF: ' + err.message, 'error')
+      );
     } catch (err) { showToast(err.message, 'error'); }
   });
 }
@@ -1745,6 +1757,207 @@ function fileToDataUrl(file) {
     reader.onerror = () => reject(new Error('FileReader failed'));
     reader.readAsDataURL(file);
   });
+}
+
+// =============================================================================
+// PDF GENERATION — Cotización formal
+// =============================================================================
+
+// Cache del logo como dataURL (se carga una vez por sesión)
+let _logoDataUrl = null;
+async function getLogoDataUrl() {
+  if (_logoDataUrl) return _logoDataUrl;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      _logoDataUrl = canvas.toDataURL('image/png');
+      resolve(_logoDataUrl);
+    };
+    img.onerror = () => reject(new Error('No se pudo cargar el logo'));
+    img.src = 'assets/logo-icon.png';
+  });
+}
+
+/** Genera y descarga el PDF de una cotización. */
+async function generarPdfCotizacion(cotizacionId) {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    showToast('jsPDF no cargó. Recargá la página.', 'error');
+    return;
+  }
+
+  const cot = window.DATA.cotizaciones.find(c => c.id === cotizacionId);
+  if (!cot) { showToast('Cotización no encontrada', 'error'); return; }
+
+  const cli = window.Marketplace.clienteById(cot.cliente_id);
+  const unidad = window.DATA.unidades.find(u => u.id === cot.unidad_id);
+  const proj = unidad ? window.DATA.proyectos.find(p => p.id === unidad.proyecto_id) : null;
+  const inm = proj ? Repo.inmobiliariaById(proj.inmobiliaria_id) : null;
+  const broker = (window.DATA.usuarios || []).find(u => u.id === cot.broker_id);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, H = 297;
+  const MARGIN = 20;
+
+  // Cargar logo y dibujarlo
+  try {
+    const logoDataUrl = await getLogoDataUrl();
+    doc.addImage(logoDataUrl, 'PNG', MARGIN, 14, 18, 18);
+  } catch (e) {
+    // Si falla, seguimos sin logo
+  }
+
+  // ===== HEADER =====
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor('#1A2744');
+  doc.text('Somos', MARGIN + 22, 22);
+  const somosWidth = doc.getTextWidth('Somos');
+  doc.setTextColor('#2ECC71');
+  doc.text('Somos', MARGIN + 22, 22); // re-paint just to apply color (workaround)
+  doc.setTextColor('#1A2744');
+  doc.text(' Inversión', MARGIN + 22 + somosWidth, 22);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor('#64748b');
+  doc.text('Marketplace · Inteligencia inmobiliaria', MARGIN + 22, 28);
+
+  // Línea separadora verde brand
+  doc.setDrawColor('#2ECC71');
+  doc.setLineWidth(0.6);
+  doc.line(MARGIN, 38, W - MARGIN, 38);
+
+  // ===== TÍTULO + REF =====
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor('#1A2744');
+  doc.text('Cotización', MARGIN, 52);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor('#475569');
+  const today = new Date(cot.created_at);
+  doc.text(`Referencia: ${cot.referencia}`, W - MARGIN, 47, { align: 'right' });
+  doc.text(`Fecha de emisión: ${today.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })}`, W - MARGIN, 52, { align: 'right' });
+  doc.text(`Válida hasta: ${cot.valida_hasta || '—'}`, W - MARGIN, 57, { align: 'right' });
+
+  let y = 70;
+
+  // Helper: section header
+  const drawSectionHeader = (label) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor('#1A2744');
+    doc.text(label, MARGIN, y);
+    doc.setDrawColor('#e2e8f0');
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN, y + 1.5, W - MARGIN, y + 1.5);
+    y += 7;
+  };
+
+  // Helper: key/value row
+  const drawRow = (label, value, options = {}) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor('#64748b');
+    doc.text(label, MARGIN, y);
+    doc.setFont(options.bold ? 'helvetica' : 'helvetica', options.bold ? 'bold' : 'normal');
+    doc.setFontSize(options.bold ? 10 : 9.5);
+    doc.setTextColor(options.highlight ? '#2ECC71' : '#1A2744');
+    doc.text(String(value || '—'), MARGIN + 50, y);
+    y += 5.5;
+  };
+
+  // ===== DATOS DEL CLIENTE =====
+  drawSectionHeader('DATOS DEL CLIENTE');
+  drawRow('Nombre:', cli ? cli.nombre : '—');
+  drawRow('RUT:', cli ? (cli.rut || '—') : '—');
+  if (cli && cli.email) drawRow('Email:', cli.email);
+  if (cli && cli.telefono) drawRow('Teléfono:', cli.telefono);
+  y += 4;
+
+  // ===== PROYECTO =====
+  drawSectionHeader('PROYECTO');
+  drawRow('Inmobiliaria:', inm ? inm.nombre_publico : '—');
+  drawRow('Proyecto:', proj ? proj.nombre : '—');
+  drawRow('Dirección:', proj ? `${proj.direccion}, ${proj.comuna}` : '—');
+  drawRow('Unidad:', unidad ? `N° ${unidad.numero}` : '—');
+  drawRow('Tipología:', unidad ? unidad.tipologia : '—');
+  if (unidad && unidad.superficie_total) drawRow('Superficie:', `${unidad.superficie_total} m²`);
+  if (unidad && unidad.piso) drawRow('Piso:', String(unidad.piso));
+  y += 4;
+
+  // ===== CONDICIONES FINANCIERAS =====
+  drawSectionHeader('CONDICIONES FINANCIERAS');
+  const ufClp = cot.uf_referencia;
+  const pieUf = cot.precio_uf * (cot.pie_porcentaje / 100);
+  const saldoUf = cot.precio_uf - pieUf;
+  const totalUf = cot.total_clp / ufClp;
+  const fmt = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+  const fmtClpN = (n) => '$ ' + Math.round(n).toLocaleString('es-CL');
+
+  drawRow('Precio total:', `UF ${fmt(cot.precio_uf)}    (~${fmtClpN(cot.precio_uf * ufClp)})`);
+  drawRow('Pie:', `${cot.pie_porcentaje}%  =  UF ${fmt(pieUf)}    (~${fmtClpN(pieUf * ufClp)})`);
+  drawRow('Saldo a financiar:', `UF ${fmt(saldoUf)}    (~${fmtClpN(saldoUf * ufClp)})`);
+  drawRow('Plazo:', `${cot.plazo_meses} meses`);
+  drawRow('Tasa anual:', `${cot.tasa_anual}%`);
+
+  // Divisor sutil antes del dividendo (highlight)
+  y += 2;
+  doc.setDrawColor('#e2e8f0');
+  doc.line(MARGIN, y, W - MARGIN, y);
+  y += 5;
+
+  drawRow('Dividendo estimado:', fmtClpN(cot.dividendo_estimado_clp) + ' / mes', { bold: true, highlight: true });
+  drawRow('Total a pagar (capital + intereses):', `UF ${fmt(totalUf)}    (~${fmtClpN(cot.total_clp)})`, { bold: true });
+
+  y += 6;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor('#94a3b8');
+  doc.text(`Valor UF referencial: ${fmtClpN(ufClp)} (${window.DATA.ufReferencia.fecha})`, MARGIN, y);
+  y += 5;
+
+  // ===== AVISO =====
+  y += 4;
+  doc.setDrawColor('#e2e8f0');
+  doc.line(MARGIN, y, W - MARGIN, y);
+  y += 6;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8.5);
+  doc.setTextColor('#64748b');
+  const aviso = 'Aviso: cálculo referencial usando método de amortización francesa. La tasa final del crédito hipotecario depende de evaluación bancaria. La UF se ajusta diariamente según el Banco Central de Chile. Esta cotización no constituye oferta vinculante.';
+  const avisoLines = doc.splitTextToSize(aviso, W - 2 * MARGIN);
+  doc.text(avisoLines, MARGIN, y);
+  y += avisoLines.length * 4 + 6;
+
+  // ===== FOOTER =====
+  // Footer fijo en parte inferior
+  const footerY = H - 18;
+  doc.setDrawColor('#2ECC71');
+  doc.setLineWidth(0.4);
+  doc.line(MARGIN, footerY, W - MARGIN, footerY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor('#64748b');
+  if (broker) {
+    doc.text(`Broker asignado: ${broker.nombre} · ${broker.email}`, MARGIN, footerY + 5);
+  }
+  doc.text('Somos Inversión · Marketplace inmobiliario · Generado automáticamente', MARGIN, footerY + 10);
+  doc.text(cot.referencia, W - MARGIN, footerY + 5, { align: 'right' });
+
+  // ===== Guardar =====
+  const safeName = cli ? cli.nombre.replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_') : 'Cliente';
+  const filename = `Cotizacion_${cot.referencia}_${safeName}.pdf`;
+  doc.save(filename);
+  return filename;
 }
 
 // =============================================================================
