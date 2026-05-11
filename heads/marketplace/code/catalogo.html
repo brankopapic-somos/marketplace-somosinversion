@@ -851,8 +851,29 @@ function renderCotizador(unidadId) {
   const piePorcDefault = p.pie_porcentaje || 20;
   const plazoDefault = 240;
   const tasaDefault = 4.5;
+  const estPrecioDefault = 400;   // UF estacionamiento (referencial)
+  const bodPrecioDefault = 80;    // UF bodega (referencial)
+  const estCantDefault = u.estacionamiento_incluido || 0;
+  const bodCantDefault = u.bodega_incluida || 0;
+
+  const formStyle = `
+    .cot-card { background:#fff; border:1px solid var(--color-border); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+    .cot-card h3 { font-family:var(--font-tech); font-size:11px; font-weight:600; color:var(--brand-primary); text-transform:uppercase; letter-spacing:1.2px; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--color-border); }
+    .cot-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .cot-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+    .cot-field { display:flex; flex-direction:column; }
+    .cot-field label { font-size:11px; color:#475569; font-weight:600; margin-bottom:4px; }
+    .cot-field input { padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; }
+    .cot-field input:read-only { background:#f1f5f9; color:#64748b; }
+    .cot-result-row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid #f1f5f9; font-size:13px; }
+    .cot-result-row.bold { font-weight:600; }
+    .cot-result-row.highlight { background:rgba(46,204,113,0.08); margin:6px -16px; padding:10px 16px; border:none; border-radius:6px; font-size:15px; color:var(--brand-accent-strong); font-weight:700; }
+    .cot-sub { font-size:11px; color:#9ca3af; padding:4px 0 6px 16px; border-bottom:1px solid #f1f5f9; }
+    .cot-validation { background:#fef2f2; color:#991b1b; padding:8px 12px; border-radius:6px; font-size:12px; border-left:3px solid #dc2626; margin-top:8px; }
+  `;
 
   view.innerHTML = `
+    <style>${formStyle}</style>
     <div class="breadcrumb">
       <a href="#/">Catálogo</a> / <a href="#/proyecto/${p.slug}">${p.nombre}</a> / <span>Unidad ${u.numero}</span>
     </div>
@@ -861,48 +882,129 @@ function renderCotizador(unidadId) {
     <div class="page-subtitle">${p.nombre} · ${u.tipologia} · ${u.superficie_total} m² · UF ${fmtUf(u.precio_uf)}</div>
 
     <div class="cotizador">
+      <!-- ======= PARÁMETROS ======= -->
       <div class="form section">
-        <h2>Parámetros</h2>
-        <div class="row">
-          <label>Precio (UF)</label>
-          <input type="number" id="c-precio" value="${u.precio_uf}" readonly>
+        <h2 style="margin-bottom:14px;">Parámetros</h2>
+
+        <div class="cot-card">
+          <h3>Unidad</h3>
+          <div class="cot-field">
+            <label>Precio (UF)</label>
+            <input type="number" id="c-precio" value="${u.precio_uf}" readonly>
+          </div>
         </div>
-        <div class="row">
-          <label>Pie (%)</label>
-          <input type="number" id="c-pie" value="${piePorcDefault}" min="0" max="100" step="1">
+
+        <div class="cot-card">
+          <h3>Adicionales</h3>
+          <div class="cot-grid-2">
+            <div class="cot-field">
+              <label>Estacionamientos (cant)</label>
+              <input type="number" id="c-est-cant" value="${estCantDefault}" min="0" max="5" step="1">
+            </div>
+            <div class="cot-field">
+              <label>Precio c/u (UF)</label>
+              <input type="number" id="c-est-precio" value="${estPrecioDefault}" min="0" step="10">
+            </div>
+            <div class="cot-field">
+              <label>Bodegas (cant)</label>
+              <input type="number" id="c-bod-cant" value="${bodCantDefault}" min="0" max="5" step="1">
+            </div>
+            <div class="cot-field">
+              <label>Precio c/u (UF)</label>
+              <input type="number" id="c-bod-precio" value="${bodPrecioDefault}" min="0" step="5">
+            </div>
+          </div>
         </div>
-        <div class="row">
-          <label>Plazo (meses)</label>
-          <input type="number" id="c-plazo" value="${plazoDefault}" min="60" max="360" step="12">
+
+        <div class="cot-card">
+          <h3>Pie</h3>
+          <div class="cot-grid-2">
+            <div class="cot-field">
+              <label>Pie (%)</label>
+              <input type="number" id="c-pie" value="${piePorcDefault}" min="0" max="100" step="1">
+            </div>
+            <div class="cot-field">
+              <label>Bono pie (UF)</label>
+              <input type="number" id="c-bono" value="0" min="0" step="10">
+            </div>
+            <div class="cot-field">
+              <label>Pago inicial / Upfront (UF)</label>
+              <input type="number" id="c-upfront" value="0" min="0" step="10">
+            </div>
+            <div class="cot-field">
+              <label>Cantidad de cuotas pie</label>
+              <input type="number" id="c-cuotas-n" value="0" min="0" max="60" step="1">
+            </div>
+            <div class="cot-field" style="grid-column:1 / -1;">
+              <label>Cuota final (UF)</label>
+              <input type="number" id="c-cuota-final" value="0" min="0" step="10">
+            </div>
+          </div>
+          <div id="cot-pie-validation"></div>
         </div>
-        <div class="row">
-          <label>Tasa anual (%)</label>
-          <input type="number" id="c-tasa" value="${tasaDefault}" min="0" max="20" step="0.1">
+
+        <div class="cot-card">
+          <h3>Crédito hipotecario</h3>
+          <div class="cot-grid-2">
+            <div class="cot-field">
+              <label>Plazo (meses)</label>
+              <input type="number" id="c-plazo" value="${plazoDefault}" min="60" max="360" step="12">
+            </div>
+            <div class="cot-field">
+              <label>Tasa anual (%)</label>
+              <input type="number" id="c-tasa" value="${tasaDefault}" min="0" max="20" step="0.1">
+            </div>
+          </div>
         </div>
-        <div style="margin-top:12px;font-size:12px;color:#6b7280;">
+
+        <div style="margin-top:8px;font-size:11px;color:#6b7280;">
           UF referencial: <strong>${fmtClp(DATA.ufReferencia.valor_clp)} CLP</strong> (${DATA.ufReferencia.fecha})
         </div>
       </div>
 
+      <!-- ======= RESULTADO ======= -->
       <div class="results">
-        <h2 style="margin-bottom:16px;">Resultado estimado</h2>
-        <div class="row"><div class="lbl">Precio total</div><div class="val" id="r-total-uf">—</div></div>
-        <div class="row"><div class="lbl">Precio total (CLP)</div><div class="val" id="r-total-clp">—</div></div>
-        <div class="row"><div class="lbl">Pie</div><div class="val" id="r-pie">—</div></div>
-        <div class="row"><div class="lbl">Saldo financiado</div><div class="val" id="r-saldo">—</div></div>
-        <div class="row highlight"><div class="lbl">Dividendo mensual</div><div class="val" id="r-div">—</div></div>
-        <div class="row"><div class="lbl">Total a pagar (capital + intereses)</div><div class="val" id="r-pago-total">—</div></div>
+        <h2 style="margin-bottom:14px;">Resultado estimado</h2>
 
-        <div style="margin-top:18px;padding:12px;background:#fff;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.5;">
-          <strong>Aviso:</strong> Cálculo referencial usando amortización francesa. La tasa final del crédito hipotecario depende de evaluación bancaria. UF se ajusta diariamente según Banco Central.
+        <div class="cot-result-row"><span>Unidad</span><strong id="r-unidad">—</strong></div>
+        <div class="cot-result-row"><span>Estacionamiento</span><strong id="r-est">—</strong></div>
+        <div class="cot-result-row"><span>Bodega</span><strong id="r-bod">—</strong></div>
+        <div class="cot-result-row bold"><span>Precio total</span><strong id="r-total-uf">—</strong></div>
+
+        <div style="margin-top:14px;">
+          <div class="cot-result-row"><span>Pie total (sobre precio)</span><strong id="r-pie">—</strong></div>
+          <div class="cot-result-row"><span>Bono pie (descuento)</span><strong id="r-bono" style="color:var(--brand-accent-strong);">—</strong></div>
+          <div class="cot-result-row bold"><span>Pie real cliente</span><strong id="r-pie-real">—</strong></div>
+        </div>
+
+        <div id="r-pie-desglose" style="margin-top:8px;display:none;">
+          <div class="cot-sub" style="padding-top:8px;font-weight:600;color:#475569;">Desglose del pie:</div>
+          <div class="cot-sub" id="r-upfront">·</div>
+          <div class="cot-sub" id="r-cuotas">·</div>
+          <div class="cot-sub" id="r-cuota-final">·</div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <div class="cot-result-row"><span>Saldo a financiar</span><strong id="r-saldo">—</strong></div>
+          <div class="cot-result-row"><span>Plazo crédito</span><strong id="r-plazo">—</strong></div>
+          <div class="cot-result-row"><span>Tasa anual</span><strong id="r-tasa">—</strong></div>
+        </div>
+
+        <div class="cot-result-row highlight" style="margin-top:14px;">
+          <span>Dividendo mensual</span><strong id="r-div">—</strong>
+        </div>
+
+        <div class="cot-result-row bold"><span>Total a pagar (con intereses)</span><strong id="r-pago-total">—</strong></div>
+
+        <div style="margin-top:14px;padding:10px 12px;background:#fff;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.5;">
+          <strong>Aviso:</strong> Cálculo referencial · amortización francesa · sujeto a evaluación bancaria.
         </div>
 
         ${(() => {
-          // Reglas de habilitación del botón Reservar
           const proyectoOk = p.estado_negocio === 'activo' && p.estado_ingesta === 'ok';
           const unidadOk = u.estado === 'disponible';
           const canReservar = proyectoOk && unidadOk;
-          let labelReserva, motivo = '';
+          let motivo = '';
           if (!proyectoOk) {
             if (p.estado_negocio === 'agotado') motivo = 'Proyecto agotado';
             else if (p.estado_negocio === 'pausado') motivo = 'Proyecto pausado';
@@ -912,7 +1014,7 @@ function renderCotizador(unidadId) {
           } else if (!unidadOk) {
             motivo = `Unidad ${u.estado}`;
           }
-          labelReserva = canReservar ? '🔒 Reservar para cliente' : motivo;
+          const labelReserva = canReservar ? '🔒 Reservar para cliente' : motivo;
           return `
             <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
               <button id="btn-guardar-cot" class="btn btn-primary" style="width:100%;">💾 Guardar cotización para cliente</button>
@@ -927,42 +1029,139 @@ function renderCotizador(unidadId) {
     </div>
   `;
 
-  // Estado del último cálculo, accesible por los botones
-  let lastCalc = { precio: u.precio_uf, pie: piePorcDefault, plazo: plazoDefault, tasa: tasaDefault, ufClp: DATA.ufReferencia.valor_clp, divUf: 0, pagoTotalUf: 0 };
+  // Estado completo para guardar/PDF
+  let lastCalc = null;
 
+  /**
+   * Cálculo completo de la cotización con todos los inputs.
+   * Retorna objeto con todos los valores derivados.
+   */
   const recalc = () => {
-    const precio = Number(document.getElementById('c-precio').value);
-    const pie = Number(document.getElementById('c-pie').value);
-    const plazo = Number(document.getElementById('c-plazo').value);
-    const tasa = Number(document.getElementById('c-tasa').value);
+    const num = (id) => Number(document.getElementById(id).value) || 0;
+    const precioUnidad = num('c-precio');
+    const estCant = num('c-est-cant');
+    const estPrecio = num('c-est-precio');
+    const bodCant = num('c-bod-cant');
+    const bodPrecio = num('c-bod-precio');
+    const piePorc = num('c-pie');
+    const bonoUf = num('c-bono');
+    const upfrontUf = num('c-upfront');
+    const cuotasN = num('c-cuotas-n');
+    const cuotaFinalUf = num('c-cuota-final');
+    const plazo = num('c-plazo');
+    const tasa = num('c-tasa');
     const ufClp = DATA.ufReferencia.valor_clp;
 
-    const pieUf = precio * (pie / 100);
-    const saldoUf = precio - pieUf;
-    const divUf = calcularDividendo(precio, pie, plazo, tasa);
-    const pagoTotalUf = pieUf + (divUf * plazo);
+    const estTotalUf = estCant * estPrecio;
+    const bodTotalUf = bodCant * bodPrecio;
+    const precioTotalUf = precioUnidad + estTotalUf + bodTotalUf;
 
-    document.getElementById('r-total-uf').textContent = `UF ${fmtUf(precio)}`;
-    document.getElementById('r-total-clp').textContent = `$ ${fmtClp(precio * ufClp)}`;
-    document.getElementById('r-pie').textContent = `UF ${fmtUf(pieUf)} · $ ${fmtClp(pieUf * ufClp)}`;
-    document.getElementById('r-saldo').textContent = `UF ${fmtUf(saldoUf)} · $ ${fmtClp(saldoUf * ufClp)}`;
-    document.getElementById('r-div').textContent = `$ ${fmtClp(divUf * ufClp)}`;
-    document.getElementById('r-pago-total').textContent = `UF ${fmtUf(pagoTotalUf)} · $ ${fmtClp(pagoTotalUf * ufClp)}`;
+    const pieTotalUf = precioTotalUf * (piePorc / 100);
+    const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
 
-    lastCalc = { precio, pie, plazo, tasa, ufClp, divUf, pagoTotalUf };
+    const pieRestanteCuotas = pieRealUf - upfrontUf - cuotaFinalUf;
+    let pieCuotaMensualUf = 0;
+    let validationErr = null;
+    if (cuotasN > 0) {
+      pieCuotaMensualUf = pieRestanteCuotas / cuotasN;
+      if (pieCuotaMensualUf < 0) {
+        validationErr = `Upfront + cuota final (UF ${fmtUf(upfrontUf + cuotaFinalUf)}) excede el pie real (UF ${fmtUf(pieRealUf)}).`;
+      }
+    } else if (cuotasN === 0 && (upfrontUf + cuotaFinalUf > 0)) {
+      // Sin cuotas → upfront + final deben coincidir con pieReal
+      const diff = pieRealUf - (upfrontUf + cuotaFinalUf);
+      if (Math.abs(diff) > 0.01) {
+        validationErr = `Con 0 cuotas, upfront + cuota final (UF ${fmtUf(upfrontUf+cuotaFinalUf)}) debe igualar el pie real (UF ${fmtUf(pieRealUf)}). Diferencia: UF ${fmtUf(diff)}`;
+      }
+    }
+
+    // Validación del bono
+    if (bonoUf > pieTotalUf) {
+      validationErr = (validationErr ? validationErr + ' ' : '') + `Bono pie (UF ${fmtUf(bonoUf)}) excede el pie total (UF ${fmtUf(pieTotalUf)}).`;
+    }
+
+    // Saldo a financiar = precio total - pie total (el bono NO afecta lo que se financia)
+    const saldoUf = precioTotalUf - pieTotalUf;
+    const divUf = saldoUf > 0 && tasa > 0 && plazo > 0
+      ? calcularDividendoFromSaldo(saldoUf, tasa, plazo)
+      : 0;
+    const pagoTotalUf = pieRealUf + (divUf * plazo);
+
+    // Render
+    const rEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+    rEl('r-unidad', `UF ${fmtUf(precioUnidad)}`);
+    rEl('r-est', estCant > 0 ? `${estCant} × UF ${fmtUf(estPrecio)} = UF ${fmtUf(estTotalUf)}` : '—');
+    rEl('r-bod', bodCant > 0 ? `${bodCant} × UF ${fmtUf(bodPrecio)} = UF ${fmtUf(bodTotalUf)}` : '—');
+    rEl('r-total-uf', `UF ${fmtUf(precioTotalUf)} (~$ ${fmtClp(precioTotalUf * ufClp)})`);
+    rEl('r-pie', `UF ${fmtUf(pieTotalUf)} (${piePorc}%)`);
+    rEl('r-bono', bonoUf > 0 ? `− UF ${fmtUf(bonoUf)}` : '—');
+    rEl('r-pie-real', `UF ${fmtUf(pieRealUf)} (~$ ${fmtClp(pieRealUf * ufClp)})`);
+
+    // Desglose del pie
+    const desgEl = document.getElementById('r-pie-desglose');
+    const hasDesglose = upfrontUf > 0 || cuotasN > 0 || cuotaFinalUf > 0;
+    desgEl.style.display = hasDesglose ? 'block' : 'none';
+    if (hasDesglose) {
+      rEl('r-upfront', upfrontUf > 0 ? `· Upfront (al firmar): UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})` : '· Upfront: —');
+      rEl('r-cuotas', cuotasN > 0
+        ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes)`
+        : '· Cuotas: —');
+      rEl('r-cuota-final', cuotaFinalUf > 0 ? `· Cuota final (al escriturar): UF ${fmtUf(cuotaFinalUf)} (~$ ${fmtClp(cuotaFinalUf*ufClp)})` : '· Cuota final: —');
+    }
+
+    rEl('r-saldo', `UF ${fmtUf(saldoUf)} (~$ ${fmtClp(saldoUf * ufClp)})`);
+    rEl('r-plazo', `${plazo} meses`);
+    rEl('r-tasa', `${tasa}%`);
+    rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
+    rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
+
+    // Validación visual
+    const valBox = document.getElementById('cot-pie-validation');
+    if (validationErr) {
+      valBox.innerHTML = `<div class="cot-validation">⚠ ${validationErr}</div>`;
+    } else {
+      valBox.innerHTML = '';
+    }
+
+    lastCalc = {
+      precioUnidad, estCant, estPrecio, bodCant, bodPrecio,
+      estTotalUf, bodTotalUf, precioTotalUf,
+      piePorc, bonoUf, pieTotalUf, pieRealUf,
+      upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalUf,
+      saldoUf, plazo, tasa, divUf, pagoTotalUf, ufClp,
+      isValid: !validationErr,
+      validationErr
+    };
   };
 
-  ['c-pie', 'c-plazo', 'c-tasa'].forEach(id => {
-    document.getElementById(id).addEventListener('input', recalc);
-  });
+  // Wire inputs
+  const inputIds = ['c-est-cant','c-est-precio','c-bod-cant','c-bod-precio',
+                    'c-pie','c-bono','c-upfront','c-cuotas-n','c-cuota-final',
+                    'c-plazo','c-tasa'];
+  inputIds.forEach(id => document.getElementById(id).addEventListener('input', recalc));
   recalc();
 
-  document.getElementById('btn-guardar-cot').addEventListener('click', () => modalAsignarCotizacion(u, lastCalc));
+  document.getElementById('btn-guardar-cot').addEventListener('click', () => {
+    if (!lastCalc.isValid) {
+      showToast('Corregí los errores antes de guardar: ' + lastCalc.validationErr, 'error');
+      return;
+    }
+    modalAsignarCotizacion(u, lastCalc);
+  });
   document.getElementById('btn-reservar').addEventListener('click', () => {
     const proyectoOk = p.estado_negocio === 'activo' && p.estado_ingesta === 'ok';
     if (u.estado !== 'disponible' || !proyectoOk) return;
     modalReservarUnidad(u);
   });
+}
+
+/** Calcula dividendo mensual con saldo ya dado (no se recalcula pie). */
+function calcularDividendoFromSaldo(saldoUf, tasaAnual, plazoMeses) {
+  if (saldoUf <= 0 || plazoMeses <= 0) return 0;
+  if (tasaAnual === 0) return saldoUf / plazoMeses;
+  const i = (tasaAnual / 100) / 12;
+  const n = plazoMeses;
+  return saldoUf * (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1);
 }
 
 // =============================================================================
@@ -1496,28 +1695,35 @@ function renderReservas() {
 // =============================================================================
 // MODALES de asignación: cotización a cliente / reserva
 // =============================================================================
-function modalAsignarCotizacion(unidad, calculo) {
+function modalAsignarCotizacion(unidad, calc) {
   const u = window.Marketplace.currentUser();
   const clientes = window.Marketplace.clientesByBroker(u.id);
   const html = `
     <h2 style="margin-bottom:14px;">Guardar cotización</h2>
-    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Asigná esta cotización a un cliente de tu cartera. Se persistirá con la referencia generada.</p>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Asigná esta cotización a un cliente. Se persistirá con todos los parámetros y se generará el PDF.</p>
     <form id="form-asignar-cot">
       <div style="margin-bottom:12px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Cliente *</label>
         <select name="cliente_id" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;">
           <option value="">— Seleccionar —</option>
           ${clientes.map(c => `<option value="${c.id}">${c.nombre}${c.email ? ' · '+c.email : ''}</option>`).join('')}
         </select>
-        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:#2563eb;">Crear un cliente →</a></div>' : ''}
+        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:var(--brand-accent-strong);font-weight:600;">Crear un cliente →</a></div>' : ''}
       </div>
-      <div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:13px;color:#374151;margin-bottom:14px;">
-        <div>Unidad: <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)}</div>
-        <div>Pie: ${calculo.pie}% · Plazo: ${calculo.plazo} meses · Tasa: ${calculo.tasa}%</div>
-        <div>Dividendo estimado: <strong>$ ${fmtClp(calculo.divUf * calculo.ufClp)}</strong></div>
+      <div style="background:#f8fafc;border:1px solid var(--color-border);border-radius:8px;padding:12px;font-size:12px;color:#374151;margin-bottom:14px;line-height:1.6;">
+        <div style="font-weight:600;margin-bottom:6px;color:#1A2744;">Resumen</div>
+        <div>Unidad <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)}</div>
+        ${calc.estCant > 0 ? `<div>+ ${calc.estCant} estac. (UF ${fmtUf(calc.estTotalUf)})</div>` : ''}
+        ${calc.bodCant > 0 ? `<div>+ ${calc.bodCant} bod. (UF ${fmtUf(calc.bodTotalUf)})</div>` : ''}
+        <div>Precio total: <strong>UF ${fmtUf(calc.precioTotalUf)}</strong></div>
+        <div>Pie ${calc.piePorc}% = UF ${fmtUf(calc.pieTotalUf)} ${calc.bonoUf > 0 ? `(bono −UF ${fmtUf(calc.bonoUf)})` : ''}</div>
+        <div>Pie real cliente: <strong>UF ${fmtUf(calc.pieRealUf)}</strong></div>
+        ${calc.upfrontUf > 0 || calc.cuotasN > 0 || calc.cuotaFinalUf > 0 ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">Desglose: ${calc.upfrontUf > 0 ? 'upfront UF ' + fmtUf(calc.upfrontUf) : ''} ${calc.cuotasN > 0 ? '· ' + calc.cuotasN + ' cuotas UF ' + fmtUf(calc.pieCuotaMensualUf) : ''} ${calc.cuotaFinalUf > 0 ? '· final UF ' + fmtUf(calc.cuotaFinalUf) : ''}</div>` : ''}
+        <div>Plazo: ${calc.plazo} meses · Tasa: ${calc.tasa}%</div>
+        <div>Dividendo estimado: <strong>$ ${fmtClp(calc.divUf * calc.ufClp)} / mes</strong></div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
-        <button type="submit" class="btn btn-primary" ${clientes.length === 0 ? 'disabled' : ''}>Guardar</button>
+        <button type="submit" class="btn btn-primary" ${clientes.length === 0 ? 'disabled' : ''}>Guardar + PDF</button>
       </div>
     </form>
   `;
@@ -1530,16 +1736,29 @@ function modalAsignarCotizacion(unidad, calculo) {
       const cot = window.Marketplace.addCotizacion({
         cliente_id: data.cliente_id,
         unidad_id: unidad.id,
-        pie_porcentaje: calculo.pie,
-        plazo_meses: calculo.plazo,
-        tasa_anual: calculo.tasa,
-        uf_referencia: calculo.ufClp,
-        dividendo_estimado_clp: calculo.divUf * calculo.ufClp,
-        total_clp: calculo.pagoTotalUf * calculo.ufClp
+        // Adicionales
+        estacionamiento_cant: calc.estCant,
+        estacionamiento_precio_uf: calc.estPrecio,
+        bodega_cant: calc.bodCant,
+        bodega_precio_uf: calc.bodPrecio,
+        precio_total_uf: calc.precioTotalUf,
+        // Pie
+        pie_porcentaje: calc.piePorc,
+        bono_pie_uf: calc.bonoUf,
+        pie_upfront_uf: calc.upfrontUf,
+        pie_cuotas_n: calc.cuotasN,
+        pie_cuota_mensual_uf: calc.pieCuotaMensualUf,
+        pie_cuota_final_uf: calc.cuotaFinalUf,
+        // Crédito
+        plazo_meses: calc.plazo,
+        tasa_anual: calc.tasa,
+        // Outputs
+        uf_referencia: calc.ufClp,
+        dividendo_estimado_clp: calc.divUf * calc.ufClp,
+        total_clp: calc.pagoTotalUf * calc.ufClp
       });
       modal.remove();
       showToast(`Cotización ${cot.referencia} guardada · descargando PDF...`);
-      // Auto-descarga del PDF formal
       generarPdfCotizacion(cot.id).catch(err =>
         showToast('Cotización guardada, pero falló el PDF: ' + err.message, 'error')
       );
@@ -1850,8 +2069,17 @@ async function generarPdfCotizacion(cotizacionId) {
 
   let y = 70;
 
+  // Auto-paginación: si y supera el límite, nueva página
+  const checkPageBreak = (linesNeeded = 1) => {
+    if (y + linesNeeded * 5.5 > H - 24) {
+      doc.addPage();
+      y = 25;
+    }
+  };
+
   // Helper: section header
   const drawSectionHeader = (label) => {
+    checkPageBreak(2);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor('#1A2744');
@@ -1864,6 +2092,7 @@ async function generarPdfCotizacion(cotizacionId) {
 
   // Helper: key/value row
   const drawRow = (label, value, options = {}) => {
+    checkPageBreak(1);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor('#64748b');
@@ -1894,17 +2123,77 @@ async function generarPdfCotizacion(cotizacionId) {
   if (unidad && unidad.piso) drawRow('Piso:', String(unidad.piso));
   y += 4;
 
-  // ===== CONDICIONES FINANCIERAS =====
-  drawSectionHeader('CONDICIONES FINANCIERAS');
+  // Helpers para format
   const ufClp = cot.uf_referencia;
-  const pieUf = cot.precio_uf * (cot.pie_porcentaje / 100);
-  const saldoUf = cot.precio_uf - pieUf;
-  const totalUf = cot.total_clp / ufClp;
-  const fmt = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
-  const fmtClpN = (n) => '$ ' + Math.round(n).toLocaleString('es-CL');
+  const fmt = (n) => Number(n || 0).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+  const fmtClpN = (n) => '$ ' + Math.round(n || 0).toLocaleString('es-CL');
 
-  drawRow('Precio total:', `UF ${fmt(cot.precio_uf)}    (~${fmtClpN(cot.precio_uf * ufClp)})`);
-  drawRow('Pie:', `${cot.pie_porcentaje}%  =  UF ${fmt(pieUf)}    (~${fmtClpN(pieUf * ufClp)})`);
+  // Computamos los UF de adicionales y el precio total (con fallback a campos antiguos)
+  const estCant = cot.estacionamiento_cant || 0;
+  const estPrecio = cot.estacionamiento_precio_uf || 0;
+  const bodCant = cot.bodega_cant || 0;
+  const bodPrecio = cot.bodega_precio_uf || 0;
+  const estTotalUf = estCant * estPrecio;
+  const bodTotalUf = bodCant * bodPrecio;
+  const precioTotalUf = cot.precio_total_uf || cot.precio_uf;
+  const bonoUf = cot.bono_pie_uf || 0;
+  const upfrontUf = cot.pie_upfront_uf || 0;
+  const cuotasN = cot.pie_cuotas_n || 0;
+  const cuotaMensualUf = cot.pie_cuota_mensual_uf || 0;
+  const cuotaFinalUf = cot.pie_cuota_final_uf || 0;
+
+  const pieTotalUf = precioTotalUf * (cot.pie_porcentaje / 100);
+  const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
+  const saldoUf = precioTotalUf - pieTotalUf;
+  const totalUf = cot.total_clp / ufClp;
+
+  // ===== PRECIO TOTAL (con adicionales) =====
+  drawSectionHeader('DESGLOSE DEL PRECIO');
+  drawRow('Unidad:', `UF ${fmt(cot.precio_uf)}    (~${fmtClpN(cot.precio_uf * ufClp)})`);
+  if (estCant > 0) drawRow(`Estacionamiento (×${estCant}):`, `UF ${fmt(estTotalUf)}    (~${fmtClpN(estTotalUf * ufClp)})`);
+  if (bodCant > 0) drawRow(`Bodega (×${bodCant}):`, `UF ${fmt(bodTotalUf)}    (~${fmtClpN(bodTotalUf * ufClp)})`);
+  drawRow('Precio total:', `UF ${fmt(precioTotalUf)}    (~${fmtClpN(precioTotalUf * ufClp)})`, { bold: true });
+  y += 4;
+
+  // ===== PIE Y CONDICIONES =====
+  drawSectionHeader('PIE Y CONDICIONES');
+  drawRow(`Pie total (${cot.pie_porcentaje}%):`, `UF ${fmt(pieTotalUf)}    (~${fmtClpN(pieTotalUf * ufClp)})`);
+  if (bonoUf > 0) drawRow('Bono pie (descuento):', `−UF ${fmt(bonoUf)}    (~−${fmtClpN(bonoUf * ufClp)})`, { highlight: true });
+  drawRow('Pie real cliente:', `UF ${fmt(pieRealUf)}    (~${fmtClpN(pieRealUf * ufClp)})`, { bold: true });
+
+  if (upfrontUf > 0 || cuotasN > 0 || cuotaFinalUf > 0) {
+    y += 2;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor('#475569');
+    doc.text('Forma de pago del pie:', MARGIN, y);
+    y += 5;
+    if (upfrontUf > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.text(`• Pago inicial al firmar:`, MARGIN + 4, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`UF ${fmt(upfrontUf)} (~${fmtClpN(upfrontUf * ufClp)})`, MARGIN + 55, y);
+      y += 5;
+    }
+    if (cuotasN > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.text(`• ${cuotasN} cuotas mensuales sin interés:`, MARGIN + 4, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`UF ${fmt(cuotaMensualUf)} c/u (~${fmtClpN(cuotaMensualUf * ufClp)})`, MARGIN + 55, y);
+      y += 5;
+    }
+    if (cuotaFinalUf > 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.text(`• Cuota final al escriturar:`, MARGIN + 4, y);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`UF ${fmt(cuotaFinalUf)} (~${fmtClpN(cuotaFinalUf * ufClp)})`, MARGIN + 55, y);
+      y += 5;
+    }
+  }
+  y += 4;
+
+  // ===== CRÉDITO HIPOTECARIO =====
+  drawSectionHeader('CRÉDITO HIPOTECARIO');
   drawRow('Saldo a financiar:', `UF ${fmt(saldoUf)}    (~${fmtClpN(saldoUf * ufClp)})`);
   drawRow('Plazo:', `${cot.plazo_meses} meses`);
   drawRow('Tasa anual:', `${cot.tasa_anual}%`);
@@ -1915,8 +2204,8 @@ async function generarPdfCotizacion(cotizacionId) {
   doc.line(MARGIN, y, W - MARGIN, y);
   y += 5;
 
-  drawRow('Dividendo estimado:', fmtClpN(cot.dividendo_estimado_clp) + ' / mes', { bold: true, highlight: true });
-  drawRow('Total a pagar (capital + intereses):', `UF ${fmt(totalUf)}    (~${fmtClpN(cot.total_clp)})`, { bold: true });
+  drawRow('Dividendo mensual estimado:', fmtClpN(cot.dividendo_estimado_clp) + ' / mes', { bold: true, highlight: true });
+  drawRow('Total con intereses:', `UF ${fmt(totalUf)}    (~${fmtClpN(cot.total_clp)})`, { bold: true });
 
   y += 6;
   doc.setFont('helvetica', 'italic');

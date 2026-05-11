@@ -496,11 +496,33 @@
       cliente_id: data.cliente_id,
       unidad_id: data.unidad_id,
       proyecto_id: unidad.proyecto_id,
+
+      // Snapshot precio unidad
+      precio_uf: Number(unidad.precio_uf),
+
+      // Adicionales (UF cada uno)
+      estacionamiento_cant: Number(data.estacionamiento_cant || 0),
+      estacionamiento_precio_uf: Number(data.estacionamiento_precio_uf || 0),
+      bodega_cant: Number(data.bodega_cant || 0),
+      bodega_precio_uf: Number(data.bodega_precio_uf || 0),
+      precio_total_uf: Number(data.precio_total_uf || unidad.precio_uf),
+
+      // Pie
       pie_porcentaje: Number(data.pie_porcentaje),
+      bono_pie_uf: Number(data.bono_pie_uf || 0),
+      pie_upfront_uf: Number(data.pie_upfront_uf || 0),
+      pie_cuotas_n: Number(data.pie_cuotas_n || 0),
+      pie_cuota_mensual_uf: Number(data.pie_cuota_mensual_uf || 0),
+      pie_cuota_final_uf: Number(data.pie_cuota_final_uf || 0),
+
+      // Crédito
       plazo_meses: Number(data.plazo_meses),
       tasa_anual: Number(data.tasa_anual),
+
+      // Referencia
       uf_referencia: Number(data.uf_referencia),
-      precio_uf: Number(unidad.precio_uf),                // snapshot
+
+      // Outputs
       dividendo_estimado_clp: Math.round(Number(data.dividendo_estimado_clp)),
       total_clp: Math.round(Number(data.total_clp)),
       valida_hasta: validaHasta,
