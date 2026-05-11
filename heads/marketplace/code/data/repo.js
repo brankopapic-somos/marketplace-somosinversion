@@ -510,13 +510,16 @@
       // Pie
       pie_porcentaje: Number(data.pie_porcentaje),
       bono_pie_porcentaje: Number(data.bono_pie_porcentaje || 0),
-      bono_pie_uf: Number(data.bono_pie_uf || 0),   // snapshot UF derivado
+      bono_pie_uf: Number(data.bono_pie_uf || 0),
+      pie_upfront_porcentaje: Number(data.pie_upfront_porcentaje || 0),
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
       pie_cuotas_n: Number(data.pie_cuotas_n || 0),
       pie_cuota_mensual_uf: Number(data.pie_cuota_mensual_uf || 0),
+      pie_cuota_final_porcentaje: Number(data.pie_cuota_final_porcentaje || 0),
       pie_cuota_final_uf: Number(data.pie_cuota_final_uf || 0),
 
       // Crédito
+      plazo_anios: Number(data.plazo_anios || (Number(data.plazo_meses) / 12)),
       plazo_meses: Number(data.plazo_meses),
       tasa_anual: Number(data.tasa_anual),
 

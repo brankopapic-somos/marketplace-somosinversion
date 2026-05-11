@@ -928,16 +928,16 @@ function renderCotizador(unidadId) {
               <input type="number" id="c-bono" value="0" min="0" max="100" step="0.1">
             </div>
             <div class="cot-field">
-              <label>Pago inicial / Upfront (UF)</label>
-              <input type="number" id="c-upfront" value="0" min="0" step="10">
+              <label>Pago inicial (%)</label>
+              <input type="number" id="c-upfront" value="0" min="0" max="100" step="0.1">
             </div>
             <div class="cot-field">
               <label>Cantidad de cuotas pie</label>
               <input type="number" id="c-cuotas-n" value="0" min="0" max="60" step="1">
             </div>
             <div class="cot-field" style="grid-column:1 / -1;">
-              <label>Cuota final (UF)</label>
-              <input type="number" id="c-cuota-final" value="0" min="0" step="10">
+              <label>Cuota final (%)</label>
+              <input type="number" id="c-cuota-final" value="0" min="0" max="100" step="0.1">
             </div>
           </div>
           <div id="cot-pie-validation"></div>
@@ -947,11 +947,17 @@ function renderCotizador(unidadId) {
           <h3>Crédito hipotecario</h3>
           <div class="cot-grid-2">
             <div class="cot-field">
-              <label>Plazo (meses)</label>
-              <input type="number" id="c-plazo" value="${plazoDefault}" min="60" max="360" step="12">
+              <label>Plazo (años)</label>
+              <select id="c-plazo">
+                <option value="10">10 años</option>
+                <option value="15">15 años</option>
+                <option value="20" selected>20 años</option>
+                <option value="25">25 años</option>
+                <option value="30">30 años</option>
+              </select>
             </div>
             <div class="cot-field">
-              <label>Tasa anual (%)</label>
+              <label>Tasa CAE (%)</label>
               <input type="number" id="c-tasa" value="${tasaDefault}" min="0" max="20" step="0.1">
             </div>
           </div>
@@ -1045,10 +1051,11 @@ function renderCotizador(unidadId) {
     const bodPrecio = num('c-bod-precio');
     const piePorc = num('c-pie');
     const bonoPorc = num('c-bono');
-    const upfrontUf = num('c-upfront');
+    const upfrontPorc = num('c-upfront');
     const cuotasN = num('c-cuotas-n');
-    const cuotaFinalUf = num('c-cuota-final');
-    const plazo = num('c-plazo');
+    const cuotaFinalPorc = num('c-cuota-final');
+    const plazoAnios = num('c-plazo');
+    const plazo = plazoAnios * 12;   // meses internos para cálculo
     const tasa = num('c-tasa');
     const ufClp = DATA.ufReferencia.valor_clp;
 
@@ -1060,20 +1067,27 @@ function renderCotizador(unidadId) {
     // Bono pie: porcentaje del precio total → equivalente UF
     const bonoUf = precioTotalUf * (bonoPorc / 100);
     const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
+    const pieRealPorc = Math.max(0, piePorc - bonoPorc);
+
+    // Upfront y cuota final: porcentaje del precio total → UF
+    const upfrontUf = precioTotalUf * (upfrontPorc / 100);
+    const cuotaFinalUf = precioTotalUf * (cuotaFinalPorc / 100);
 
     const pieRestanteCuotas = pieRealUf - upfrontUf - cuotaFinalUf;
     let pieCuotaMensualUf = 0;
     let validationErr = null;
+    const desglosePorc = upfrontPorc + cuotaFinalPorc;
+
     if (cuotasN > 0) {
       pieCuotaMensualUf = pieRestanteCuotas / cuotasN;
       if (pieCuotaMensualUf < 0) {
-        validationErr = `Upfront + cuota final (UF ${fmtUf(upfrontUf + cuotaFinalUf)}) excede el pie real (UF ${fmtUf(pieRealUf)}).`;
+        validationErr = `Upfront (${upfrontPorc}%) + cuota final (${cuotaFinalPorc}%) = ${desglosePorc.toFixed(1)}% excede el pie real (${pieRealPorc.toFixed(1)}%).`;
       }
-    } else if (cuotasN === 0 && (upfrontUf + cuotaFinalUf > 0)) {
+    } else if (cuotasN === 0 && desglosePorc > 0) {
       // Sin cuotas → upfront + final deben coincidir con pieReal
-      const diff = pieRealUf - (upfrontUf + cuotaFinalUf);
-      if (Math.abs(diff) > 0.01) {
-        validationErr = `Con 0 cuotas, upfront + cuota final (UF ${fmtUf(upfrontUf+cuotaFinalUf)}) debe igualar el pie real (UF ${fmtUf(pieRealUf)}). Diferencia: UF ${fmtUf(diff)}`;
+      const diffPorc = pieRealPorc - desglosePorc;
+      if (Math.abs(diffPorc) > 0.01) {
+        validationErr = `Con 0 cuotas, upfront + cuota final (${desglosePorc.toFixed(1)}%) debe igualar el pie real (${pieRealPorc.toFixed(1)}%). Diferencia: ${diffPorc.toFixed(1)}%`;
       }
     }
 
@@ -1101,19 +1115,23 @@ function renderCotizador(unidadId) {
 
     // Desglose del pie
     const desgEl = document.getElementById('r-pie-desglose');
-    const hasDesglose = upfrontUf > 0 || cuotasN > 0 || cuotaFinalUf > 0;
+    const hasDesglose = upfrontPorc > 0 || cuotasN > 0 || cuotaFinalPorc > 0;
     desgEl.style.display = hasDesglose ? 'block' : 'none';
     if (hasDesglose) {
-      rEl('r-upfront', upfrontUf > 0 ? `· Upfront (al firmar): UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})` : '· Upfront: —');
+      rEl('r-upfront', upfrontPorc > 0
+        ? `· Pago inicial (al firmar): ${upfrontPorc}% = UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})`
+        : '· Pago inicial: —');
       rEl('r-cuotas', cuotasN > 0
         ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes)`
         : '· Cuotas: —');
-      rEl('r-cuota-final', cuotaFinalUf > 0 ? `· Cuota final (al escriturar): UF ${fmtUf(cuotaFinalUf)} (~$ ${fmtClp(cuotaFinalUf*ufClp)})` : '· Cuota final: —');
+      rEl('r-cuota-final', cuotaFinalPorc > 0
+        ? `· Cuota final (al escriturar): ${cuotaFinalPorc}% = UF ${fmtUf(cuotaFinalUf)} (~$ ${fmtClp(cuotaFinalUf*ufClp)})`
+        : '· Cuota final: —');
     }
 
     rEl('r-saldo', `UF ${fmtUf(saldoUf)} (~$ ${fmtClp(saldoUf * ufClp)})`);
-    rEl('r-plazo', `${plazo} meses`);
-    rEl('r-tasa', `${tasa}%`);
+    rEl('r-plazo', `${plazoAnios} años (${plazo} meses)`);
+    rEl('r-tasa', `${tasa}% CAE`);
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
     rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
 
@@ -1128,9 +1146,9 @@ function renderCotizador(unidadId) {
     lastCalc = {
       precioUnidad, estCant, estPrecio, bodCant, bodPrecio,
       estTotalUf, bodTotalUf, precioTotalUf,
-      piePorc, bonoPorc, bonoUf, pieTotalUf, pieRealUf,
-      upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalUf,
-      saldoUf, plazo, tasa, divUf, pagoTotalUf, ufClp,
+      piePorc, bonoPorc, bonoUf, pieTotalUf, pieRealUf, pieRealPorc,
+      upfrontPorc, upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalPorc, cuotaFinalUf,
+      saldoUf, plazo, plazoAnios, tasa, divUf, pagoTotalUf, ufClp,
       isValid: !validationErr,
       validationErr
     };
@@ -1579,7 +1597,7 @@ function renderCotizaciones() {
                   <td style="padding:10px 16px;">${cli ? cli.nombre : '<span style="color:#9ca3af;">[cliente eliminado]</span>'}</td>
                   <td style="padding:10px 16px;">${proj ? proj.nombre : '—'}<br><small style="color:#6b7280;">Unidad ${un ? un.numero : '?'}</small></td>
                   <td style="padding:10px 16px;">${c.pie_porcentaje}%</td>
-                  <td style="padding:10px 16px;">${c.plazo_meses} m</td>
+                  <td style="padding:10px 16px;">${c.plazo_anios || (c.plazo_meses ? c.plazo_meses / 12 : '?')} años</td>
                   <td style="padding:10px 16px;"><strong>$ ${fmtClp(c.dividendo_estimado_clp)}</strong></td>
                   <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${c.valida_hasta}</td>
                   <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
@@ -1719,8 +1737,8 @@ function modalAsignarCotizacion(unidad, calc) {
         <div>Precio total: <strong>UF ${fmtUf(calc.precioTotalUf)}</strong></div>
         <div>Pie ${calc.piePorc}% = UF ${fmtUf(calc.pieTotalUf)} ${calc.bonoPorc > 0 ? `(bono ${calc.bonoPorc}% = −UF ${fmtUf(calc.bonoUf)})` : ''}</div>
         <div>Pie real cliente: <strong>UF ${fmtUf(calc.pieRealUf)}</strong></div>
-        ${calc.upfrontUf > 0 || calc.cuotasN > 0 || calc.cuotaFinalUf > 0 ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">Desglose: ${calc.upfrontUf > 0 ? 'upfront UF ' + fmtUf(calc.upfrontUf) : ''} ${calc.cuotasN > 0 ? '· ' + calc.cuotasN + ' cuotas UF ' + fmtUf(calc.pieCuotaMensualUf) : ''} ${calc.cuotaFinalUf > 0 ? '· final UF ' + fmtUf(calc.cuotaFinalUf) : ''}</div>` : ''}
-        <div>Plazo: ${calc.plazo} meses · Tasa: ${calc.tasa}%</div>
+        ${calc.upfrontPorc > 0 || calc.cuotasN > 0 || calc.cuotaFinalPorc > 0 ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">Desglose pie: ${calc.upfrontPorc > 0 ? 'pago inicial ' + calc.upfrontPorc + '% (UF ' + fmtUf(calc.upfrontUf) + ')' : ''} ${calc.cuotasN > 0 ? '· ' + calc.cuotasN + ' cuotas UF ' + fmtUf(calc.pieCuotaMensualUf) : ''} ${calc.cuotaFinalPorc > 0 ? '· final ' + calc.cuotaFinalPorc + '% (UF ' + fmtUf(calc.cuotaFinalUf) + ')' : ''}</div>` : ''}
+        <div>Plazo: ${calc.plazoAnios} años (${calc.plazo} meses) · Tasa CAE: ${calc.tasa}%</div>
         <div>Dividendo estimado: <strong>$ ${fmtClp(calc.divUf * calc.ufClp)} / mes</strong></div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -1747,12 +1765,15 @@ function modalAsignarCotizacion(unidad, calc) {
         // Pie
         pie_porcentaje: calc.piePorc,
         bono_pie_porcentaje: calc.bonoPorc,
-        bono_pie_uf: calc.bonoUf,         // derivado, se guarda para snapshot
+        bono_pie_uf: calc.bonoUf,
+        pie_upfront_porcentaje: calc.upfrontPorc,
         pie_upfront_uf: calc.upfrontUf,
         pie_cuotas_n: calc.cuotasN,
         pie_cuota_mensual_uf: calc.pieCuotaMensualUf,
+        pie_cuota_final_porcentaje: calc.cuotaFinalPorc,
         pie_cuota_final_uf: calc.cuotaFinalUf,
         // Crédito
+        plazo_anios: calc.plazoAnios,
         plazo_meses: calc.plazo,
         tasa_anual: calc.tasa,
         // Outputs
@@ -2143,10 +2164,13 @@ async function generarPdfCotizacion(cotizacionId) {
   // Fallback para cotizaciones legacy que tenían solo bono_pie_uf
   const bonoPorc = cot.bono_pie_porcentaje != null ? cot.bono_pie_porcentaje : 0;
   const bonoUf = cot.bono_pie_uf || (bonoPorc > 0 ? (cot.precio_total_uf || cot.precio_uf) * bonoPorc / 100 : 0);
+  const upfrontPorc = cot.pie_upfront_porcentaje != null ? cot.pie_upfront_porcentaje : null;
   const upfrontUf = cot.pie_upfront_uf || 0;
   const cuotasN = cot.pie_cuotas_n || 0;
   const cuotaMensualUf = cot.pie_cuota_mensual_uf || 0;
+  const cuotaFinalPorc = cot.pie_cuota_final_porcentaje != null ? cot.pie_cuota_final_porcentaje : null;
   const cuotaFinalUf = cot.pie_cuota_final_uf || 0;
+  const plazoAnios = cot.plazo_anios || (cot.plazo_meses ? cot.plazo_meses / 12 : null);
 
   const pieTotalUf = precioTotalUf * (cot.pie_porcentaje / 100);
   const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
@@ -2178,7 +2202,10 @@ async function generarPdfCotizacion(cotizacionId) {
       doc.setFont('helvetica', 'normal');
       doc.text(`• Pago inicial al firmar:`, MARGIN + 4, y);
       doc.setFont('helvetica', 'bold');
-      doc.text(`UF ${fmt(upfrontUf)} (~${fmtClpN(upfrontUf * ufClp)})`, MARGIN + 55, y);
+      const upfrontTxt = upfrontPorc != null
+        ? `${upfrontPorc}% = UF ${fmt(upfrontUf)} (~${fmtClpN(upfrontUf * ufClp)})`
+        : `UF ${fmt(upfrontUf)} (~${fmtClpN(upfrontUf * ufClp)})`;
+      doc.text(upfrontTxt, MARGIN + 55, y);
       y += 5;
     }
     if (cuotasN > 0) {
@@ -2192,7 +2219,10 @@ async function generarPdfCotizacion(cotizacionId) {
       doc.setFont('helvetica', 'normal');
       doc.text(`• Cuota final al escriturar:`, MARGIN + 4, y);
       doc.setFont('helvetica', 'bold');
-      doc.text(`UF ${fmt(cuotaFinalUf)} (~${fmtClpN(cuotaFinalUf * ufClp)})`, MARGIN + 55, y);
+      const cuotaFinalTxt = cuotaFinalPorc != null
+        ? `${cuotaFinalPorc}% = UF ${fmt(cuotaFinalUf)} (~${fmtClpN(cuotaFinalUf * ufClp)})`
+        : `UF ${fmt(cuotaFinalUf)} (~${fmtClpN(cuotaFinalUf * ufClp)})`;
+      doc.text(cuotaFinalTxt, MARGIN + 55, y);
       y += 5;
     }
   }
@@ -2201,8 +2231,8 @@ async function generarPdfCotizacion(cotizacionId) {
   // ===== CRÉDITO HIPOTECARIO =====
   drawSectionHeader('CRÉDITO HIPOTECARIO');
   drawRow('Saldo a financiar:', `UF ${fmt(saldoUf)}    (~${fmtClpN(saldoUf * ufClp)})`);
-  drawRow('Plazo:', `${cot.plazo_meses} meses`);
-  drawRow('Tasa anual:', `${cot.tasa_anual}%`);
+  drawRow('Plazo:', plazoAnios ? `${plazoAnios} años (${cot.plazo_meses} meses)` : `${cot.plazo_meses} meses`);
+  drawRow('Tasa CAE:', `${cot.tasa_anual}%`);
 
   // Divisor sutil antes del dividendo (highlight)
   y += 2;
