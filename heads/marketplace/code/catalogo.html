@@ -366,10 +366,13 @@ const __user = window.Marketplace.currentUser();
     : '<span style="background:#2563eb;font-size:10px;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">broker</span>';
   nav.innerHTML = `
     <a href="#/" style="color:#fff;opacity:0.75;font-size:14px;">Catálogo</a>
+    <a href="#/clientes" style="color:#fff;opacity:0.75;font-size:14px;">Mis clientes</a>
+    <a href="#/cotizaciones" style="color:#fff;opacity:0.75;font-size:14px;">Cotizaciones</a>
+    <a href="#/reservas" style="color:#fff;opacity:0.75;font-size:14px;">Reservas</a>
     ${adminLink}
     <div style="display:flex;align-items:center;gap:10px;padding-left:18px;border-left:1px solid rgba(255,255,255,0.15);">
       ${roleBadge}
-      <div style="font-size:13px;color:#cbd5e1;">${__user.nombre}</div>
+      <a href="#/cuenta" style="font-size:13px;color:#cbd5e1;text-decoration:none;">${__user.nombre}</a>
       <button id="btn-logout" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:#fff;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;">Salir</button>
     </div>
   `;
@@ -884,9 +887,19 @@ function renderCotizador(unidadId) {
         <div style="margin-top:18px;padding:12px;background:#fff;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.5;">
           <strong>Aviso:</strong> Cálculo referencial usando amortización francesa. La tasa final del crédito hipotecario depende de evaluación bancaria. UF se ajusta diariamente según Banco Central.
         </div>
+
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+          <button id="btn-guardar-cot" class="btn btn-primary" ${u.estado !== 'disponible' ? 'disabled title="Unidad no disponible"' : ''} style="width:100%;">💾 Guardar cotización para cliente</button>
+          <button id="btn-reservar" class="btn ${u.estado === 'disponible' ? 'btn-primary' : 'btn-ghost'}" ${u.estado !== 'disponible' ? 'disabled' : ''} style="width:100%;background:${u.estado === 'disponible' ? '#16a34a' : ''};">
+            ${u.estado === 'disponible' ? '🔒 Reservar para cliente' : `Unidad ${u.estado}`}
+          </button>
+        </div>
       </div>
     </div>
   `;
+
+  // Estado del último cálculo, accesible por los botones
+  let lastCalc = { precio: u.precio_uf, pie: piePorcDefault, plazo: plazoDefault, tasa: tasaDefault, ufClp: DATA.ufReferencia.valor_clp, divUf: 0, pagoTotalUf: 0 };
 
   const recalc = () => {
     const precio = Number(document.getElementById('c-precio').value);
@@ -906,12 +919,487 @@ function renderCotizador(unidadId) {
     document.getElementById('r-saldo').textContent = `UF ${fmtUf(saldoUf)} · $ ${fmtClp(saldoUf * ufClp)}`;
     document.getElementById('r-div').textContent = `$ ${fmtClp(divUf * ufClp)}`;
     document.getElementById('r-pago-total').textContent = `UF ${fmtUf(pagoTotalUf)} · $ ${fmtClp(pagoTotalUf * ufClp)}`;
+
+    lastCalc = { precio, pie, plazo, tasa, ufClp, divUf, pagoTotalUf };
   };
 
   ['c-pie', 'c-plazo', 'c-tasa'].forEach(id => {
     document.getElementById(id).addEventListener('input', recalc);
   });
   recalc();
+
+  document.getElementById('btn-guardar-cot').addEventListener('click', () => modalAsignarCotizacion(u, lastCalc));
+  document.getElementById('btn-reservar').addEventListener('click', () => {
+    if (u.estado !== 'disponible') return;
+    modalReservarUnidad(u);
+  });
+}
+
+// =============================================================================
+// ROUTER (hash-based)
+// =============================================================================
+// =============================================================================
+// MODAL helpers
+// =============================================================================
+function showModal(html, onClose) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
+  wrap.innerHTML = `<div style="background:#fff;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;">${html}</div>`;
+  wrap.addEventListener('click', e => {
+    if (e.target === wrap) { wrap.remove(); if (onClose) onClose(); }
+  });
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed;bottom:20px;right:20px;padding:12px 18px;border-radius:8px;color:#fff;font-size:14px;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,0.15);background:${type === 'error' ? '#dc2626' : '#16a34a'};`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// =============================================================================
+// PERFIL — Datos personales
+// =============================================================================
+function renderCuenta() {
+  const u = window.Marketplace.currentUser();
+  const totalClientes = window.Marketplace.clientesByBroker(u.id).length;
+  const totalCot = window.Marketplace.cotizacionesByBroker(u.id).length;
+  const reservas = window.Marketplace.reservasByBroker(u.id);
+  const reservasActivas = reservas.filter(r => !['cancelada','escriturada'].includes(r.estado)).length;
+
+  view.innerHTML = `
+    <div class="page-title">Mi cuenta</div>
+    <div class="page-subtitle">${u.role === 'admin' ? 'Administrador' : 'Broker'} · sesión activa</div>
+
+    <div class="section" style="margin-bottom:18px;">
+      <h2>Datos personales</h2>
+      <form id="form-perfil">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Nombre</label>
+            <input type="text" name="nombre" value="${u.nombre}" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+          <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Email</label>
+            <input type="email" value="${u.email}" disabled style="width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:14px;background:#f9fafb;color:#6b7280;margin-top:4px;"></div>
+          <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Teléfono</label>
+            <input type="tel" name="telefono" value="${u.telefono || ''}" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+          <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Rol</label>
+            <input type="text" value="${u.role}" disabled style="width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:14px;background:#f9fafb;color:#6b7280;margin-top:4px;"></div>
+        </div>
+        <div style="margin-top:18px;display:flex;gap:8px;">
+          <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          <button type="button" class="btn btn-ghost" id="btn-cambiar-clave">Cambiar clave</button>
+        </div>
+      </form>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+      <a href="#/clientes" style="background:#fff;border:1px solid #e2e6ee;border-radius:10px;padding:18px;text-decoration:none;color:inherit;display:block;">
+        <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Mis clientes</div>
+        <div style="font-size:30px;font-weight:700;color:#2563eb;margin-top:6px;">${totalClientes}</div>
+        <div style="font-size:13px;color:#6b7280;margin-top:2px;">Ver cartera →</div>
+      </a>
+      <a href="#/cotizaciones" style="background:#fff;border:1px solid #e2e6ee;border-radius:10px;padding:18px;text-decoration:none;color:inherit;display:block;">
+        <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Cotizaciones</div>
+        <div style="font-size:30px;font-weight:700;color:#2563eb;margin-top:6px;">${totalCot}</div>
+        <div style="font-size:13px;color:#6b7280;margin-top:2px;">Ver historial →</div>
+      </a>
+      <a href="#/reservas" style="background:#fff;border:1px solid #e2e6ee;border-radius:10px;padding:18px;text-decoration:none;color:inherit;display:block;">
+        <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Reservas</div>
+        <div style="font-size:30px;font-weight:700;color:#2563eb;margin-top:6px;">${reservasActivas}<small style="font-size:14px;color:#9ca3af;font-weight:500;"> activas · ${reservas.length} totales</small></div>
+        <div style="font-size:13px;color:#6b7280;margin-top:2px;">Ver reservas →</div>
+      </a>
+    </div>
+  `;
+  document.getElementById('form-perfil').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      window.Marketplace.updateUsuario(u.id, data);
+      showToast('Datos actualizados');
+      renderCuenta();
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+  document.getElementById('btn-cambiar-clave').addEventListener('click', () => {
+    const html = `
+      <h2 style="margin-bottom:14px;">Cambiar clave</h2>
+      <form id="form-clave">
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Nueva clave</label>
+          <input type="password" name="password" required minlength="6" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    `;
+    const modal = showModal(html);
+    modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+    modal.querySelector('#form-clave').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        window.Marketplace.updateUsuario(u.id, data);
+        modal.remove();
+        showToast('Clave actualizada');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  });
+}
+
+// =============================================================================
+// CLIENTES — CRUD por broker
+// =============================================================================
+function renderClientes() {
+  const u = window.Marketplace.currentUser();
+  const clientes = window.Marketplace.clientesByBroker(u.id);
+
+  view.innerHTML = `
+    <div class="page-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Mis clientes <small style="font-size:14px;color:#6b7280;font-weight:400;">(${clientes.length})</small></span>
+      <button class="btn btn-primary" id="btn-add-cliente">+ Nuevo cliente</button>
+    </div>
+    <div class="page-subtitle">Cartera personal del broker. Cada reserva debe vincularse a un cliente de esta lista.</div>
+
+    ${clientes.length === 0 ? `
+      <div class="empty-state">
+        <h3>Aún no tenés clientes</h3>
+        <p>Agregá tu primer cliente para poder asignar cotizaciones y reservar unidades.</p>
+        <button class="btn btn-primary" id="btn-add-cliente-2" style="margin-top:14px;">+ Crear cliente</button>
+      </div>
+    ` : `
+      <div class="section" style="padding:0;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead>
+            <tr style="background:#f9fafb;">
+              <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Nombre</th>
+              <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Contacto</th>
+              <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">RUT</th>
+              <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Cotizaciones</th>
+              <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Reservas</th>
+              <th style="padding:10px 16px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${clientes.map(c => {
+              const cots = window.Marketplace.cotizacionesByCliente(c.id).length;
+              const rsvs = window.Marketplace.reservasByCliente(c.id).length;
+              return `
+                <tr style="border-top:1px solid #f3f4f6;">
+                  <td style="padding:10px 16px;"><strong>${c.nombre}</strong></td>
+                  <td style="padding:10px 16px;font-size:13px;color:#374151;">
+                    ${c.email ? c.email + '<br>' : ''}${c.telefono || ''}
+                  </td>
+                  <td style="padding:10px 16px;font-size:13px;color:#6b7280;">${c.rut || '—'}</td>
+                  <td style="padding:10px 16px;text-align:center;">${cots}</td>
+                  <td style="padding:10px 16px;text-align:center;">${rsvs}</td>
+                  <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
+                    <button class="btn btn-ghost" data-edit="${c.id}" style="padding:4px 10px;font-size:12px;">Editar</button>
+                    <button class="btn btn-ghost" data-del="${c.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">Eliminar</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  const triggerAdd = () => clienteForm(null);
+  const addBtn = document.getElementById('btn-add-cliente');
+  if (addBtn) addBtn.addEventListener('click', triggerAdd);
+  const addBtn2 = document.getElementById('btn-add-cliente-2');
+  if (addBtn2) addBtn2.addEventListener('click', triggerAdd);
+  document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => clienteForm(b.dataset.edit)));
+  document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Eliminar este cliente?')) return;
+    try {
+      window.Marketplace.deleteCliente(b.dataset.del);
+      showToast('Cliente eliminado');
+      renderClientes();
+    } catch (err) { showToast(err.message, 'error'); }
+  }));
+}
+
+function clienteForm(id) {
+  const cli = id ? window.Marketplace.clienteById(id) : {};
+  const html = `
+    <h2 style="margin-bottom:16px;">${id ? 'Editar' : 'Nuevo'} cliente</h2>
+    <form id="form-cliente">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="grid-column:1/-1;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Nombre *</label>
+          <input name="nombre" value="${cli.nombre || ''}" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Email</label>
+          <input type="email" name="email" value="${cli.email || ''}" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Teléfono</label>
+          <input type="tel" name="telefono" value="${cli.telefono || ''}" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">RUT</label>
+          <input name="rut" value="${cli.rut || ''}" placeholder="12.345.678-9" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Origen</label>
+          <input name="origen" value="${cli.origen || 'manual'}" placeholder="referido, web, redes..." style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div style="grid-column:1/-1;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Notas</label>
+          <textarea name="notas" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;min-height:80px;resize:vertical;font-family:inherit;">${cli.notas || ''}</textarea></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">${id ? 'Guardar' : 'Crear'}</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-cliente').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      if (id) window.Marketplace.updateCliente(id, data);
+      else window.Marketplace.addCliente(data);
+      modal.remove();
+      showToast(id ? 'Cliente actualizado' : 'Cliente creado');
+      renderClientes();
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+}
+
+// =============================================================================
+// COTIZACIONES — lista del broker
+// =============================================================================
+function renderCotizaciones() {
+  const u = window.Marketplace.currentUser();
+  const cots = window.Marketplace.cotizacionesByBroker(u.id).sort((a,b) => b.created_at.localeCompare(a.created_at));
+
+  view.innerHTML = `
+    <div class="page-title">Mis cotizaciones <small style="font-size:14px;color:#6b7280;font-weight:400;">(${cots.length})</small></div>
+    <div class="page-subtitle">Cotizaciones que generaste asociadas a tus clientes. Las cotizaciones se crean desde el cotizador de cada unidad.</div>
+
+    ${cots.length === 0 ? `
+      <div class="empty-state">
+        <h3>Aún no tenés cotizaciones</h3>
+        <p>Abrí una unidad desde el catálogo, calculá una cotización y asignala a un cliente.</p>
+        <a href="#/" class="btn btn-primary" style="margin-top:14px;">Ir al catálogo →</a>
+      </div>
+    ` : `
+      <div class="section" style="padding:0;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f9fafb;">
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Ref</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Cliente</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Proyecto · Unidad</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Pie</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Plazo</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Dividendo</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Vigencia</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${cots.map(c => {
+              const cli = window.Marketplace.clienteById(c.cliente_id);
+              const un = Repo.unidadById(c.unidad_id);
+              const proj = un ? DATA.proyectos.find(p => p.id === un.proyecto_id) : null;
+              return `
+                <tr style="border-top:1px solid #f3f4f6;">
+                  <td style="padding:10px 16px;"><code style="font-size:11px;background:#f3f4f6;padding:2px 5px;border-radius:3px;">${c.referencia}</code></td>
+                  <td style="padding:10px 16px;">${cli ? cli.nombre : '<span style="color:#9ca3af;">[cliente eliminado]</span>'}</td>
+                  <td style="padding:10px 16px;">${proj ? proj.nombre : '—'}<br><small style="color:#6b7280;">Unidad ${un ? un.numero : '?'}</small></td>
+                  <td style="padding:10px 16px;">${c.pie_porcentaje}%</td>
+                  <td style="padding:10px 16px;">${c.plazo_meses} m</td>
+                  <td style="padding:10px 16px;"><strong>$ ${fmtClp(c.dividendo_estimado_clp)}</strong></td>
+                  <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${c.valida_hasta}</td>
+                  <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
+                    ${un ? `<a href="#/unidad/${un.id}" class="btn btn-ghost" style="padding:4px 10px;font-size:12px;">Ver unidad</a>` : ''}
+                    <button class="btn btn-ghost" data-del-cot="${c.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">×</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  document.querySelectorAll('[data-del-cot]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Eliminar esta cotización del historial?')) return;
+    try {
+      window.Marketplace.deleteCotizacion(b.dataset.delCot);
+      showToast('Cotización eliminada');
+      renderCotizaciones();
+    } catch (err) { showToast(err.message, 'error'); }
+  }));
+}
+
+// =============================================================================
+// RESERVAS — lista del broker
+// =============================================================================
+function renderReservas() {
+  const u = window.Marketplace.currentUser();
+  const reservas = window.Marketplace.reservasByBroker(u.id).sort((a,b) => b.created_at.localeCompare(a.created_at));
+
+  view.innerHTML = `
+    <div class="page-title">Mis reservas <small style="font-size:14px;color:#6b7280;font-weight:400;">(${reservas.length})</small></div>
+    <div class="page-subtitle">Toda reserva está vinculada a un cliente. La unidad reservada pasa a estado <strong>reservada</strong> automáticamente.</div>
+
+    ${reservas.length === 0 ? `
+      <div class="empty-state">
+        <h3>Aún no tenés reservas</h3>
+        <p>Desde la página de una unidad disponible, podés crear una reserva asignándola a un cliente.</p>
+        <a href="#/" class="btn btn-primary" style="margin-top:14px;">Ir al catálogo →</a>
+      </div>
+    ` : `
+      <div class="section" style="padding:0;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f9fafb;">
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Ref</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Cliente</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Proyecto · Unidad</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Precio</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Estado</th>
+            <th style="text-align:left;padding:10px 16px;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Vence</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${reservas.map(r => {
+              const cli = window.Marketplace.clienteById(r.cliente_id);
+              const un = Repo.unidadById(r.unidad_id);
+              const proj = un ? DATA.proyectos.find(p => p.id === un.proyecto_id) : null;
+              const colors = { pendiente:'#f59e0b', confirmada:'#2563eb', escriturada:'#16a34a', cancelada:'#6b7280' };
+              const bgs = { pendiente:'#fef3c7', confirmada:'#dbeafe', escriturada:'#dcfce7', cancelada:'#f3f4f6' };
+              return `
+                <tr style="border-top:1px solid #f3f4f6;">
+                  <td style="padding:10px 16px;"><code style="font-size:11px;background:#f3f4f6;padding:2px 5px;border-radius:3px;">${r.referencia}</code></td>
+                  <td style="padding:10px 16px;">${cli ? cli.nombre : '<span style="color:#9ca3af;">[eliminado]</span>'}</td>
+                  <td style="padding:10px 16px;">${proj ? proj.nombre : '—'}<br><small style="color:#6b7280;">Unidad ${un ? un.numero : '?'}</small></td>
+                  <td style="padding:10px 16px;">UF ${fmtUf(r.precio_uf_snapshot)}</td>
+                  <td style="padding:10px 16px;"><span style="background:${bgs[r.estado]};color:${colors[r.estado]};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${r.estado}</span></td>
+                  <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${r.fecha_vencimiento}</td>
+                  <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
+                    ${r.estado === 'pendiente' ? `<button class="btn btn-primary" data-confirm="${r.id}" style="padding:4px 10px;font-size:12px;">Confirmar</button>` : ''}
+                    ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-esc="${r.id}" style="padding:4px 10px;font-size:12px;color:#16a34a;">Escriturar</button>` : ''}
+                    ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-cancel="${r.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">Cancelar</button>` : ''}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  document.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', () => {
+    try { window.Marketplace.confirmarReserva(b.dataset.confirm); showToast('Reserva confirmada'); renderReservas(); }
+    catch (err) { showToast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-esc]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Marcar como escriturada? La unidad pasará a estado VENDIDA (no reversible).')) return;
+    try { window.Marketplace.escriturarReserva(b.dataset.esc); showToast('Reserva escriturada'); renderReservas(); }
+    catch (err) { showToast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => {
+    const motivo = prompt('Motivo de cancelación (opcional):') || '';
+    try { window.Marketplace.cancelReserva(b.dataset.cancel, motivo); showToast('Reserva cancelada · unidad liberada'); renderReservas(); }
+    catch (err) { showToast(err.message, 'error'); }
+  }));
+}
+
+// =============================================================================
+// MODALES de asignación: cotización a cliente / reserva
+// =============================================================================
+function modalAsignarCotizacion(unidad, calculo) {
+  const u = window.Marketplace.currentUser();
+  const clientes = window.Marketplace.clientesByBroker(u.id);
+  const html = `
+    <h2 style="margin-bottom:14px;">Guardar cotización</h2>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Asigná esta cotización a un cliente de tu cartera. Se persistirá con la referencia generada.</p>
+    <form id="form-asignar-cot">
+      <div style="margin-bottom:12px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Cliente *</label>
+        <select name="cliente_id" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;">
+          <option value="">— Seleccionar —</option>
+          ${clientes.map(c => `<option value="${c.id}">${c.nombre}${c.email ? ' · '+c.email : ''}</option>`).join('')}
+        </select>
+        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:#2563eb;">Crear un cliente →</a></div>' : ''}
+      </div>
+      <div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:13px;color:#374151;margin-bottom:14px;">
+        <div>Unidad: <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)}</div>
+        <div>Pie: ${calculo.pie}% · Plazo: ${calculo.plazo} meses · Tasa: ${calculo.tasa}%</div>
+        <div>Dividendo estimado: <strong>$ ${fmtClp(calculo.divUf * calculo.ufClp)}</strong></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary" ${clientes.length === 0 ? 'disabled' : ''}>Guardar</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-asignar-cot').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      const cot = window.Marketplace.addCotizacion({
+        cliente_id: data.cliente_id,
+        unidad_id: unidad.id,
+        pie_porcentaje: calculo.pie,
+        plazo_meses: calculo.plazo,
+        tasa_anual: calculo.tasa,
+        uf_referencia: calculo.ufClp,
+        dividendo_estimado_clp: calculo.divUf * calculo.ufClp,
+        total_clp: calculo.pagoTotalUf * calculo.ufClp
+      });
+      modal.remove();
+      showToast(`Cotización ${cot.referencia} guardada`);
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+}
+
+function modalReservarUnidad(unidad) {
+  const u = window.Marketplace.currentUser();
+  const clientes = window.Marketplace.clientesByBroker(u.id);
+  const html = `
+    <h2 style="margin-bottom:14px;">Reservar unidad</h2>
+    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">La reserva debe asignarse a un cliente de tu cartera. Al confirmar, la unidad pasa a estado <strong>reservada</strong>.</p>
+    <form id="form-reserva">
+      <div style="margin-bottom:12px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Cliente *</label>
+        <select name="cliente_id" required style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;">
+          <option value="">— Seleccionar —</option>
+          ${clientes.map(c => `<option value="${c.id}">${c.nombre}${c.email ? ' · '+c.email : ''}</option>`).join('')}
+        </select>
+        ${clientes.length === 0 ? '<div style="font-size:12px;color:#dc2626;margin-top:6px;">No tenés clientes. <a href="#/clientes" style="color:#2563eb;">Crear un cliente →</a></div>' : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;">
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Monto reserva (CLP)</label>
+          <input type="number" name="monto_reserva_clp" value="500000" min="0" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Vigencia (días)</label>
+          <input type="number" name="dias_vigencia" value="5" min="1" max="30" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;"></div>
+      </div>
+      <div style="margin-bottom:14px;"><label style="font-size:12px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Notas</label>
+        <textarea name="notas" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;min-height:60px;font-family:inherit;"></textarea></div>
+      <div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:13px;color:#374151;margin-bottom:14px;">
+        Unidad: <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)} <span style="color:#9ca3af;">(snapshot)</span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary" ${clientes.length === 0 ? 'disabled' : ''}>Confirmar reserva</button>
+      </div>
+    </form>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#form-reserva').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      const r = window.Marketplace.addReserva({
+        cliente_id: data.cliente_id,
+        unidad_id: unidad.id,
+        monto_reserva_clp: data.monto_reserva_clp,
+        dias_vigencia: data.dias_vigencia,
+        notas: data.notas
+      });
+      modal.remove();
+      showToast(`Reserva ${r.referencia} creada · unidad reservada`);
+      // recargar la vista actual para reflejar el nuevo estado
+      router();
+    } catch (err) { showToast(err.message, 'error'); }
+  });
 }
 
 // =============================================================================
@@ -924,6 +1412,10 @@ function router() {
 
   if (m2) renderCotizador(m2[1]);
   else if (m1) renderProyecto(m1[1]);
+  else if (hash === '/cuenta') renderCuenta();
+  else if (hash === '/clientes') renderClientes();
+  else if (hash === '/cotizaciones') renderCotizaciones();
+  else if (hash === '/reservas') renderReservas();
   else renderCatalog();
 
   window.scrollTo(0, 0);

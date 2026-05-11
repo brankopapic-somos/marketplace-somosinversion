@@ -198,6 +198,315 @@
   }
 
   // ---------------------------------------------------------------------------
+  // CRUD: Clientes — pertenecen a un broker (broker_id)
+  // ---------------------------------------------------------------------------
+  function ensureArr(key) {
+    if (!window.DATA[key]) window.DATA[key] = [];
+  }
+
+  function validateCliente(c) {
+    const errs = [];
+    if (!c.nombre || c.nombre.trim().length < 2) errs.push("nombre requerido");
+    if (c.email && !validateEmail(c.email)) errs.push("email inválido");
+    if (!c.email && !c.telefono) errs.push("requerido al menos email o teléfono");
+    return errs;
+  }
+
+  function addCliente(data) {
+    ensureArr("clientes");
+    const u = currentUser();
+    if (!u) throw new Error("Requiere sesión");
+    const errors = validateCliente(data);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    const cliente = {
+      id: uid("cl"),
+      broker_id: u.id,
+      nombre: data.nombre.trim(),
+      email: (data.email || "").toLowerCase().trim() || null,
+      telefono: data.telefono || null,
+      rut: data.rut || null,
+      origen: data.origen || "manual",
+      notas: data.notas || "",
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
+    window.DATA.clientes.push(cliente);
+    persist();
+    return cliente;
+  }
+
+  function updateCliente(id, patch) {
+    ensureArr("clientes");
+    const u = currentUser();
+    const i = window.DATA.clientes.findIndex(c => c.id === id);
+    if (i < 0) throw new Error("Cliente no encontrado");
+    const cli = window.DATA.clientes[i];
+    if (u.role !== 'admin' && cli.broker_id !== u.id)
+      throw new Error("No tenés permiso para editar este cliente");
+    const updated = { ...cli, ...patch, updated_at: nowIso() };
+    const errors = validateCliente(updated);
+    if (errors.length > 0) throw new Error("Validación: " + errors.join("; "));
+    window.DATA.clientes[i] = updated;
+    persist();
+    return updated;
+  }
+
+  function deleteCliente(id) {
+    ensureArr("clientes");
+    const u = currentUser();
+    const i = window.DATA.clientes.findIndex(c => c.id === id);
+    if (i < 0) return false;
+    const cli = window.DATA.clientes[i];
+    if (u.role !== 'admin' && cli.broker_id !== u.id)
+      throw new Error("No tenés permiso para eliminar este cliente");
+    // Verificar dependencias: reservas activas bloquean el delete
+    const reservasActivas = (window.DATA.reservas || []).filter(
+      r => r.cliente_id === id && !['cancelada','escriturada'].includes(r.estado)
+    );
+    if (reservasActivas.length > 0)
+      throw new Error(`No se puede eliminar: el cliente tiene ${reservasActivas.length} reserva(s) activa(s). Cancelalas primero.`);
+    window.DATA.clientes.splice(i, 1);
+    // Las cotizaciones se conservan (snapshot histórico) pero quedan sin cliente válido
+    persist();
+    return true;
+  }
+
+  function clientesByBroker(brokerId) {
+    ensureArr("clientes");
+    return window.DATA.clientes.filter(c => c.broker_id === brokerId);
+  }
+
+  function clienteById(id) {
+    ensureArr("clientes");
+    return window.DATA.clientes.find(c => c.id === id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRUD: Cotizaciones — siempre vinculadas a (broker_id, cliente_id, unidad_id)
+  // ---------------------------------------------------------------------------
+  function nextReferenciaCotizacion() {
+    ensureArr("cotizaciones");
+    const n = window.DATA.cotizaciones.length + 1;
+    return "Q-" + String(n).padStart(6, "0");
+  }
+
+  function addCotizacion(data) {
+    ensureArr("cotizaciones");
+    const u = currentUser();
+    if (!u) throw new Error("Requiere sesión");
+    if (!data.cliente_id) throw new Error("cliente_id requerido");
+    if (!data.unidad_id) throw new Error("unidad_id requerido");
+    const cli = clienteById(data.cliente_id);
+    if (!cli) throw new Error("Cliente no existe");
+    if (u.role !== 'admin' && cli.broker_id !== u.id)
+      throw new Error("El cliente no pertenece a tu cartera");
+    const unidad = window.DATA.unidades.find(x => x.id === data.unidad_id);
+    if (!unidad) throw new Error("Unidad no existe");
+
+    // Vigencia default: 30 días
+    const validaHasta = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const cot = {
+      id: uid("q"),
+      referencia: nextReferenciaCotizacion(),
+      broker_id: u.id,
+      cliente_id: data.cliente_id,
+      unidad_id: data.unidad_id,
+      proyecto_id: unidad.proyecto_id,
+      pie_porcentaje: Number(data.pie_porcentaje),
+      plazo_meses: Number(data.plazo_meses),
+      tasa_anual: Number(data.tasa_anual),
+      uf_referencia: Number(data.uf_referencia),
+      precio_uf: Number(unidad.precio_uf),                // snapshot
+      dividendo_estimado_clp: Math.round(Number(data.dividendo_estimado_clp)),
+      total_clp: Math.round(Number(data.total_clp)),
+      valida_hasta: validaHasta,
+      created_at: nowIso()
+    };
+    window.DATA.cotizaciones.push(cot);
+    persist();
+    return cot;
+  }
+
+  function cotizacionesByBroker(brokerId) {
+    ensureArr("cotizaciones");
+    return window.DATA.cotizaciones.filter(c => c.broker_id === brokerId);
+  }
+
+  function cotizacionesByCliente(clienteId) {
+    ensureArr("cotizaciones");
+    return window.DATA.cotizaciones.filter(c => c.cliente_id === clienteId);
+  }
+
+  function deleteCotizacion(id) {
+    ensureArr("cotizaciones");
+    const u = currentUser();
+    const i = window.DATA.cotizaciones.findIndex(c => c.id === id);
+    if (i < 0) return false;
+    const cot = window.DATA.cotizaciones[i];
+    if (u.role !== 'admin' && cot.broker_id !== u.id)
+      throw new Error("No tenés permiso para eliminar esta cotización");
+    window.DATA.cotizaciones.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRUD: Reservas — SIEMPRE vinculadas a un cliente
+  // Estados: pendiente → confirmada → escriturada
+  //          cualquiera → cancelada
+  // ---------------------------------------------------------------------------
+  const RESERVA_ESTADOS = ["pendiente", "confirmada", "escriturada", "cancelada"];
+
+  function nextReferenciaReserva() {
+    ensureArr("reservas");
+    const n = window.DATA.reservas.length + 1;
+    return "R-" + String(n).padStart(6, "0");
+  }
+
+  function addReserva(data) {
+    ensureArr("reservas");
+    const u = currentUser();
+    if (!u) throw new Error("Requiere sesión");
+    if (!data.cliente_id) throw new Error("Toda reserva debe estar asociada a un cliente");
+    if (!data.unidad_id) throw new Error("unidad_id requerido");
+    const cli = clienteById(data.cliente_id);
+    if (!cli) throw new Error("Cliente no existe");
+    if (u.role !== 'admin' && cli.broker_id !== u.id)
+      throw new Error("El cliente no pertenece a tu cartera");
+    const unidad = window.DATA.unidades.find(x => x.id === data.unidad_id);
+    if (!unidad) throw new Error("Unidad no existe");
+    if (unidad.estado !== 'disponible')
+      throw new Error(`Unidad no está disponible (estado actual: ${unidad.estado})`);
+
+    // Verificar que no haya otra reserva activa sobre esta unidad
+    const reservaActiva = window.DATA.reservas.find(
+      r => r.unidad_id === unidad.id && !['cancelada','escriturada'].includes(r.estado)
+    );
+    if (reservaActiva)
+      throw new Error("La unidad ya tiene una reserva activa (referencia " + reservaActiva.referencia + ")");
+
+    const vencimiento = new Date(Date.now() + (data.dias_vigencia || 5) * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+
+    const reserva = {
+      id: uid("rs"),
+      referencia: nextReferenciaReserva(),
+      broker_id: u.id,
+      cliente_id: data.cliente_id,
+      unidad_id: data.unidad_id,
+      proyecto_id: unidad.proyecto_id,
+      precio_uf_snapshot: Number(unidad.precio_uf),
+      pie_porcentaje: data.pie_porcentaje ? Number(data.pie_porcentaje) : null,
+      monto_reserva_clp: data.monto_reserva_clp ? Number(data.monto_reserva_clp) : null,
+      estado: "pendiente",
+      fecha_reserva: nowIso(),
+      fecha_vencimiento: vencimiento,
+      notas: data.notas || "",
+      created_at: nowIso(),
+      updated_at: nowIso()
+    };
+
+    // Transición de la unidad: disponible → reservada
+    if (!isValidTransition('disponible', 'reservada')) {
+      throw new Error("Transición disponible→reservada no permitida (error interno)");
+    }
+    const uIdx = window.DATA.unidades.findIndex(x => x.id === unidad.id);
+    window.DATA.unidades[uIdx] = { ...unidad, estado: 'reservada', updated_at: nowIso() };
+
+    window.DATA.reservas.push(reserva);
+    persist();
+    return reserva;
+  }
+
+  function cancelReserva(id, motivo = "") {
+    ensureArr("reservas");
+    const u = currentUser();
+    const i = window.DATA.reservas.findIndex(r => r.id === id);
+    if (i < 0) throw new Error("Reserva no encontrada");
+    const reserva = window.DATA.reservas[i];
+    if (u.role !== 'admin' && reserva.broker_id !== u.id)
+      throw new Error("No tenés permiso sobre esta reserva");
+    if (['cancelada','escriturada'].includes(reserva.estado))
+      throw new Error("La reserva ya está en estado " + reserva.estado);
+
+    // Devolver la unidad a disponible
+    const uIdx = window.DATA.unidades.findIndex(x => x.id === reserva.unidad_id);
+    if (uIdx >= 0 && window.DATA.unidades[uIdx].estado === 'reservada') {
+      window.DATA.unidades[uIdx] = {
+        ...window.DATA.unidades[uIdx],
+        estado: 'disponible',
+        updated_at: nowIso()
+      };
+    }
+    window.DATA.reservas[i] = {
+      ...reserva,
+      estado: 'cancelada',
+      notas: (reserva.notas ? reserva.notas + "\n" : "") + "Cancelada: " + (motivo || "sin motivo"),
+      updated_at: nowIso()
+    };
+    persist();
+    return window.DATA.reservas[i];
+  }
+
+  function confirmarReserva(id) {
+    ensureArr("reservas");
+    const u = currentUser();
+    const i = window.DATA.reservas.findIndex(r => r.id === id);
+    if (i < 0) throw new Error("Reserva no encontrada");
+    const reserva = window.DATA.reservas[i];
+    if (u.role !== 'admin' && reserva.broker_id !== u.id)
+      throw new Error("No tenés permiso sobre esta reserva");
+    if (reserva.estado !== 'pendiente')
+      throw new Error("Solo se puede confirmar una reserva pendiente");
+    window.DATA.reservas[i] = { ...reserva, estado: 'confirmada', updated_at: nowIso() };
+    persist();
+    return window.DATA.reservas[i];
+  }
+
+  function escriturarReserva(id) {
+    ensureArr("reservas");
+    const u = currentUser();
+    const i = window.DATA.reservas.findIndex(r => r.id === id);
+    if (i < 0) throw new Error("Reserva no encontrada");
+    const reserva = window.DATA.reservas[i];
+    if (u.role !== 'admin' && reserva.broker_id !== u.id)
+      throw new Error("No tenés permiso sobre esta reserva");
+    if (!['pendiente','confirmada'].includes(reserva.estado))
+      throw new Error("Estado inválido para escriturar: " + reserva.estado);
+
+    // Transición unidad: reservada → vendida
+    const uIdx = window.DATA.unidades.findIndex(x => x.id === reserva.unidad_id);
+    if (uIdx >= 0 && window.DATA.unidades[uIdx].estado === 'reservada') {
+      window.DATA.unidades[uIdx] = {
+        ...window.DATA.unidades[uIdx],
+        estado: 'vendida',
+        updated_at: nowIso()
+      };
+    }
+    window.DATA.reservas[i] = { ...reserva, estado: 'escriturada', updated_at: nowIso() };
+    persist();
+    return window.DATA.reservas[i];
+  }
+
+  function reservasByBroker(brokerId) {
+    ensureArr("reservas");
+    return window.DATA.reservas.filter(r => r.broker_id === brokerId);
+  }
+
+  function reservasByCliente(clienteId) {
+    ensureArr("reservas");
+    return window.DATA.reservas.filter(r => r.cliente_id === clienteId);
+  }
+
+  function reservaActivaByUnidad(unidadId) {
+    ensureArr("reservas");
+    return window.DATA.reservas.find(
+      r => r.unidad_id === unidadId && !['cancelada','escriturada'].includes(r.estado)
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // CRUD: Inmobiliarias
   // ---------------------------------------------------------------------------
   function validateInmobiliaria(i) {
@@ -727,6 +1036,10 @@
     source, // 'localStorage' o 'seeds'
     ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
     listUsuarios, deleteUsuario, updateUsuario, validateEmail,
+    addCliente, updateCliente, deleteCliente, clientesByBroker, clienteById, validateCliente,
+    addCotizacion, cotizacionesByBroker, cotizacionesByCliente, deleteCotizacion,
+    addReserva, cancelReserva, confirmarReserva, escriturarReserva,
+    reservasByBroker, reservasByCliente, reservaActivaByUnidad, RESERVA_ESTADOS,
     addInmobiliaria, updateInmobiliaria, deleteInmobiliaria, countProyectosByInmobiliaria,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad,

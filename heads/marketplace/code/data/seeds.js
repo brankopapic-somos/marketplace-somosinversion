@@ -305,7 +305,22 @@ window.DATA = {
 
   // ---------------------------------------------------------------------------
   // Usuarios — vacío en seeds. Se crean vía register() en la landing.
-  // El landing ofrece un botón "Crear cuentas demo" para testing rápido.
   // ---------------------------------------------------------------------------
-  usuarios: []
+  usuarios: [],
+
+  // ---------------------------------------------------------------------------
+  // Clientes — cada uno pertenece a un broker (broker_id = usuarios.id)
+  // ---------------------------------------------------------------------------
+  clientes: [],
+
+  // ---------------------------------------------------------------------------
+  // Cotizaciones — siempre vinculadas a (broker_id, cliente_id, unidad_id)
+  // ---------------------------------------------------------------------------
+  cotizaciones: [],
+
+  // ---------------------------------------------------------------------------
+  // Reservas — siempre vinculadas a (broker_id, cliente_id, unidad_id)
+  // Cambian el estado de la unidad según el flujo definido en el repo.
+  // ---------------------------------------------------------------------------
+  reservas: []
 };
