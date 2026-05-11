@@ -267,6 +267,23 @@ Abrir directamente `heads/marketplace/code/index.html` en el navegador (Chrome, 
 | D-008 | Patrón adaptador implementado en JS vanilla, no diferido a Next | Validar arquitectura conforme `docs/02-INGESTA.md` ya en MVP. Migración a TS conserva la interfaz `fetch_raw_stock` + `health_check`. |
 | D-009 | Audit log de ingestas en `localStorage` (key `marketplace.audit.v1`) | Tabla en código real; localStorage es suficiente para validación. Límite: últimas 100 entradas. |
 | D-010 | `<<NOMBRE_REPO_CELULA>>` resuelto a `marketplace-somosinversion` por decisión CEO 2026-05-06 | Repo público en `https://github.com/brankopapic-somos/marketplace-somosinversion` |
+| D-011 | Excepción autorizada a doctrina §5: usar paleta y logo de Somos Inversión en el frontend del MVP | Autorizado explícitamente por CEO. Por ahora se usa **logo placeholder** (marca "S" + texto) y **paleta placeholder** (navy + cyan accent). Cuando CEO provea hex codes y archivo de logo, swap es 1-line en `assets/brand.css` |
+
+---
+
+## Excepciones autorizadas a la doctrina
+
+### EXC-001 · Uso de paleta y logo de Somos Inversión (2026-05-07)
+
+- **Doctrina afectada:** `03-DOCTRINA-AISLAMIENTO.md` §5 "La célula NO copia ni adapta assets propietarios (imágenes de proyectos, logos, fonts) del origen"
+- **Autorizada por:** CEO en chat directo, 2026-05-07
+- **Motivo:** El MVP necesita identidad visual cohesiva con el ecosistema origen para validación interna/comercial
+- **Alcance:** Paleta de colores + logo en frontend (CSS + HTML). NO incluye otros assets (imágenes de proyectos, fonts propietarios)
+- **Estado actual de la implementación:**
+  - `assets/brand.css` con design system (palette placeholder + logo SVG-text placeholder)
+  - 8 variables CSS `--brand-*` controlan toda la apariencia
+  - Cuando CEO provea hex oficiales y archivo de logo (`assets/logo.svg` o `.png`), swap trivial
+- **Riesgo de integración:** Bajo — el design system ya está aislado en `assets/brand.css`. Al integrar al origen, se reemplaza por los tokens de design system del origen sin tocar HTML
 
 ---
 

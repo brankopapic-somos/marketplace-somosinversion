@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Catálogo Marketplace — Célula Experimental</title>
+<title>Somos Inversión · Catálogo Marketplace</title>
+<link rel="stylesheet" href="assets/brand.css">
 <style>
   /* =========================================================================
      RESET + BASE
@@ -333,10 +334,13 @@
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">
-      Catálogo Marketplace
-      <small>MVP — Célula Experimental</small>
-    </div>
+    <a href="#/" class="brand-logo" style="text-decoration:none;">
+      <div class="brand-logo-mark">S</div>
+      <div class="brand-logo-text">
+        <span class="brand-logo-name" style="color:#fff;">Somos Inversión</span>
+        <span class="brand-logo-tagline" style="color:#94a3b8;">Marketplace · Catálogo</span>
+      </div>
+    </a>
     <nav id="topbar-nav" style="display:flex;gap:18px;align-items:center;"></nav>
   </header>
 
@@ -505,8 +509,9 @@ function renderCatalog() {
   const condiciones = Repo.condicionesPublicas().sort((a, b) => a.orden - b.orden);
 
   view.innerHTML = `
-    <div class="page-title">Catálogo de proyectos</div>
-    <div class="page-subtitle">Inversión inmobiliaria en Chile · ${proyectos.length} proyecto${proyectos.length !== 1 ? 's' : ''} disponible${proyectos.length !== 1 ? 's' : ''}</div>
+    <div style="margin-bottom:8px;"><span class="tech-ai-badge">Stock en vivo · ${proyectos.length} proyecto${proyectos.length !== 1 ? 's' : ''}</span></div>
+    <div class="page-title">Catálogo <span class="tech-text-gradient">inmobiliario</span></div>
+    <div class="page-subtitle">Inversión en Chile · stock actualizado automáticamente desde inmobiliarias asociadas</div>
 
     <div class="layout-catalog">
       <aside class="filters">
