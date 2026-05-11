@@ -2059,11 +2059,9 @@ async function generarPdfCotizacion(cotizacionId) {
   // ===== HEADER =====
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.setTextColor('#1A2744');
+  doc.setTextColor('#2ECC71');
   doc.text('Somos', MARGIN + 22, 22);
   const somosWidth = doc.getTextWidth('Somos');
-  doc.setTextColor('#2ECC71');
-  doc.text('Somos', MARGIN + 22, 22); // re-paint just to apply color (workaround)
   doc.setTextColor('#1A2744');
   doc.text(' Inversión', MARGIN + 22 + somosWidth, 22);
 
