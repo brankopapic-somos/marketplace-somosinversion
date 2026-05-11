@@ -328,5 +328,12 @@ window.DATA = {
   // Archivos por proyecto — brochures, imágenes, videos, planos, legales
   // Se gestionan desde admin · accesibles en read-only desde broker
   // ---------------------------------------------------------------------------
-  archivos_proyecto: []
+  archivos_proyecto: [],
+
+  // ---------------------------------------------------------------------------
+  // Mapeos de Excel guardados por inmobiliaria — para auto-aplicar en uploads
+  // futuros del mismo formato. Estructura por entry:
+  // { id, inmobiliaria_id, nombre, header_row, columnas: {ExcelHeader: targetField}, created_at }
+  // ---------------------------------------------------------------------------
+  mapeos_excel: []
 };

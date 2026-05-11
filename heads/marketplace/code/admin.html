@@ -152,6 +152,7 @@
 
 <script src="data/seeds.js"></script>
 <script src="data/repo.js"></script>
+<script src="assets/vendor/xlsx.full.min.js"></script>
 <script>
 // =============================================================================
 // AUTH GUARD — admin requiere rol "admin"
@@ -457,6 +458,7 @@ function proyectos() {
                 <td>${stateBadge(p.estado_ingesta, 'ingesta')}</td>
                 <td>${unidCount}</td>
                 <td class="row-actions">
+                  <button class="btn btn-ghost btn-sm" data-excel="${p.id}" title="Importar unidades desde Excel">📊 Excel</button>
                   <button class="btn btn-ghost btn-sm" data-archivos="${p.id}" title="Gestionar archivos del proyecto">📎 Archivos${(() => { const n = window.Marketplace.archivosByProyecto(p.id).length; return n > 0 ? ` (${n})` : ''; })()}</button>
                   <button class="btn btn-ghost btn-sm" data-edit="${p.id}">Editar</button>
                   <button class="btn btn-danger btn-sm" data-del="${p.id}">×</button>
@@ -469,6 +471,7 @@ function proyectos() {
     </div>
   `;
   document.getElementById('btn-add-proyecto').addEventListener('click', () => proyectoForm(null));
+  document.querySelectorAll('[data-excel]').forEach(b => b.addEventListener('click', () => modalImportarExcelProyecto(b.dataset.excel)));
   document.querySelectorAll('[data-archivos]').forEach(b => b.addEventListener('click', () => modalArchivosProyecto(b.dataset.archivos)));
   document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => proyectoForm(b.dataset.edit)));
   document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
@@ -478,6 +481,441 @@ function proyectos() {
       toast('Proyecto eliminado'); render();
     }
   }));
+}
+
+// =============================================================================
+// IMPORTAR EXCEL — Wizard de 4 pasos para subir stock desde Excel/CSV
+// =============================================================================
+async function modalImportarExcelProyecto(proyectoId) {
+  if (!window.XLSX) { toast('SheetJS no cargó. Recargá la página.', 'error'); return; }
+  const proyecto = window.DATA.proyectos.find(p => p.id === proyectoId);
+  if (!proyecto) { toast('Proyecto no existe', 'error'); return; }
+  const inm = window.DATA.inmobiliarias.find(i => i.id === proyecto.inmobiliaria_id);
+  const M = window.Marketplace;
+
+  // Estado del wizard
+  const state = {
+    step: 1,
+    file: null,
+    workbookRows: null,    // todas las filas crudas leídas
+    headers: null,         // array de headers detectados
+    headerRow: 1,          // qué fila tiene los headers (default 1)
+    mapping: {},           // {ExcelHeader: targetFieldKey}
+    savedMapping: null,
+    saveMapping: true,     // si guardar el mapping al confirmar
+    importResult: null
+  };
+
+  // Cargar mapping previo si existe
+  state.savedMapping = M.getMapeoForInmobiliaria(proyecto.inmobiliaria_id);
+
+  const modal = showModal('<div id="wiz-body" style="min-height:200px;">Cargando…</div>');
+  modal.querySelector('.modal').style.maxWidth = '900px';
+
+  function close() {
+    modal.remove();
+    proyectos(); // refresh
+  }
+
+  function renderStep() {
+    const body = modal.querySelector('#wiz-body');
+    if (state.step === 1) renderStep1Upload(body);
+    else if (state.step === 2) renderStep2Mapping(body);
+    else if (state.step === 3) renderStep3Preview(body);
+    else if (state.step === 4) renderStep4Result(body);
+  }
+
+  function renderStep1Upload(body) {
+    const hasSavedMapping = !!state.savedMapping;
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Importar unidades desde Excel</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:18px;">
+        <strong>${proyecto.nombre}</strong> · ${proyecto.comuna} · <em>${inm ? inm.nombre_publico : ''}</em>
+      </p>
+
+      <div style="display:flex;gap:14px;margin-bottom:18px;font-size:12px;">
+        <div style="flex:1;background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:10px 14px;">
+          <div style="font-weight:600;color:var(--brand-accent-strong);margin-bottom:4px;">PASO 1 · ACTUAL</div>
+          <div style="color:#475569;">Subir archivo</div>
+        </div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;">
+          <div style="font-weight:600;margin-bottom:4px;">PASO 2</div>
+          <div>Mapear columnas</div>
+        </div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;">
+          <div style="font-weight:600;margin-bottom:4px;">PASO 3</div>
+          <div>Preview</div>
+        </div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;">
+          <div style="font-weight:600;margin-bottom:4px;">PASO 4</div>
+          <div>Importar</div>
+        </div>
+      </div>
+
+      ${hasSavedMapping ? `
+        <div class="alert alert-success" style="margin-bottom:14px;">
+          ✓ Hay un mapeo guardado para <strong>${inm ? inm.nombre_publico : 'esta inmobiliaria'}</strong> (${Object.keys(state.savedMapping.columnas).length} columnas mapeadas). Al subir el Excel se aplicará automáticamente y podrás ajustarlo si hace falta.
+        </div>
+      ` : `
+        <div class="alert alert-info" style="margin-bottom:14px;">
+          ℹ Primera importación para <strong>${inm ? inm.nombre_publico : 'esta inmobiliaria'}</strong>. Configurarás el mapeo de columnas en el siguiente paso.
+        </div>
+      `}
+
+      <div class="field">
+        <label>Archivo Excel o CSV *</label>
+        <input type="file" id="wiz-file" accept=".xlsx,.xls,.xlsm,.csv,.ods" style="margin-top:6px;width:100%;padding:14px;border:2px dashed #cbd5e1;border-radius:8px;background:#f9fafb;cursor:pointer;">
+      </div>
+
+      <div id="wiz-file-info" style="display:none;margin-top:8px;padding:8px 12px;background:#f1f5f9;border-radius:6px;font-size:12px;"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="wiz-next" disabled>Continuar →</button>
+      </div>
+    `;
+    body.querySelector('#wiz-cancel').addEventListener('click', close);
+
+    const fileInput = body.querySelector('#wiz-file');
+    const fileInfo = body.querySelector('#wiz-file-info');
+    const nextBtn = body.querySelector('#wiz-next');
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      state.file = file;
+      fileInfo.style.display = 'block';
+      fileInfo.innerHTML = `📊 <strong>${file.name}</strong> · ${(file.size/1024).toFixed(0)} KB · leyendo...`;
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            const firstSheet = wb.SheetNames[0];
+            const sheet = wb.Sheets[firstSheet];
+            // Leer como array of arrays (sin headers asumidos)
+            const arr = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            state.workbookRows = arr;
+            // Auto-detectar row de headers (primer row con ≥3 strings no vacíos)
+            let detectedHeaderRow = 0;
+            for (let i = 0; i < Math.min(arr.length, 10); i++) {
+              const stringCount = arr[i].filter(c => typeof c === 'string' && c.trim() !== '').length;
+              if (stringCount >= 3) { detectedHeaderRow = i; break; }
+            }
+            state.headerRow = detectedHeaderRow + 1;
+            state.headers = arr[detectedHeaderRow].map(h => String(h).trim()).filter(h => h !== '');
+            fileInfo.innerHTML = `📊 <strong>${file.name}</strong> · ${arr.length} filas · ${state.headers.length} columnas detectadas (header en fila ${state.headerRow}) · sheet "${firstSheet}"`;
+            nextBtn.disabled = false;
+            // Pre-aplicar mapping guardado si existe
+            if (state.savedMapping) {
+              state.mapping = { ...state.savedMapping.columnas };
+              state.headerRow = state.savedMapping.header_row || state.headerRow;
+            }
+          } catch (err) {
+            fileInfo.innerHTML = '<span style="color:#dc2626;">❌ Error leyendo archivo: ' + err.message + '</span>';
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        toast('Error: ' + err.message, 'error');
+      }
+    });
+
+    nextBtn.addEventListener('click', () => { state.step = 2; renderStep(); });
+  }
+
+  function renderStep2Mapping(body) {
+    const fields = M.EXCEL_FIELDS_UNIDAD;
+    const requiredKeys = fields.filter(f => f.required).map(f => f.key);
+
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Mapear columnas</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">
+        Asigná cada columna de tu Excel a un campo del marketplace. Las marcadas con * son obligatorias.
+      </p>
+
+      <div style="display:flex;gap:14px;margin-bottom:18px;font-size:12px;">
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 1</div><div>Subir archivo</div></div>
+        <div style="flex:1;background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:10px 14px;color:var(--brand-accent-strong);"><div style="font-weight:600;">PASO 2 · ACTUAL</div><div>Mapear columnas</div></div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">PASO 3</div><div>Preview</div></div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">PASO 4</div><div>Importar</div></div>
+      </div>
+
+      <div style="display:flex;gap:14px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <label style="font-size:11px;color:#475569;font-weight:600;">Fila de headers</label>
+          <input type="number" id="wiz-header-row" value="${state.headerRow}" min="1" max="20" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin-top:4px;">
+        </div>
+        <div style="font-size:11px;color:#6b7280;flex:2;">
+          Si los headers no están en la fila 1 (ej. hay título en la fila 1 y headers en la fila 3), ajustá el número.
+        </div>
+      </div>
+
+      <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:14px;max-height:400px;overflow-y:auto;">
+        <table style="width:100%;font-size:13px;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="text-align:left;padding:8px;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Columna en Excel</th>
+              <th style="text-align:left;padding:8px;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Mapear a campo del marketplace</th>
+            </tr>
+          </thead>
+          <tbody id="mapping-rows"></tbody>
+        </table>
+      </div>
+
+      <div id="mapping-validation" style="margin-top:10px;"></div>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="wiz-save-mapping" ${state.saveMapping ? 'checked' : ''}>
+        <label for="wiz-save-mapping" style="font-size:13px;color:#374151;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;">
+          Guardar este mapeo para futuros uploads de <strong>${inm ? inm.nombre_publico : 'esta inmobiliaria'}</strong>
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-back">← Atrás</button>
+        <button type="button" class="btn btn-primary" id="wiz-next">Ver preview →</button>
+      </div>
+    `;
+
+    // Render mapping rows
+    function renderMappingRows() {
+      const tbody = body.querySelector('#mapping-rows');
+      const headerIdx = (Number(body.querySelector('#wiz-header-row').value) || 1) - 1;
+      state.headerRow = headerIdx + 1;
+      state.headers = (state.workbookRows[headerIdx] || []).map(h => String(h || '').trim()).filter(h => h !== '');
+
+      tbody.innerHTML = state.headers.map(h => {
+        const currentMapping = state.mapping[h] || '';
+        const options = `
+          <option value="">— Ignorar —</option>
+          ${fields.map(f => `<option value="${f.key}" ${currentMapping === f.key ? 'selected' : ''}>${f.label}${f.required ? ' *' : ''}</option>`).join('')}
+        `;
+        return `
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:8px;"><code style="font-size:12px;">${h}</code></td>
+            <td style="padding:8px;">
+              <select data-excel-col="${h.replace(/"/g, '&quot;')}" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">${options}</select>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Listeners
+      tbody.querySelectorAll('select[data-excel-col]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const col = sel.dataset.excelCol;
+          if (sel.value) state.mapping[col] = sel.value;
+          else delete state.mapping[col];
+          validateMapping();
+        });
+      });
+    }
+
+    function validateMapping() {
+      const usedTargets = Object.values(state.mapping);
+      const missing = requiredKeys.filter(k =>
+        !usedTargets.includes(k) && !(k === 'external_id' && usedTargets.includes('numero'))
+      );
+      const valBox = body.querySelector('#mapping-validation');
+      const nextBtn = body.querySelector('#wiz-next');
+      if (missing.length > 0) {
+        const labels = missing.map(k => fields.find(f => f.key === k).label).join(', ');
+        valBox.innerHTML = `<div class="alert alert-warning" style="font-size:12px;padding:8px 12px;">⚠ Faltan campos requeridos: ${labels}</div>`;
+        nextBtn.disabled = true;
+      } else {
+        valBox.innerHTML = '';
+        nextBtn.disabled = false;
+      }
+    }
+
+    renderMappingRows();
+    validateMapping();
+
+    body.querySelector('#wiz-header-row').addEventListener('input', () => {
+      renderMappingRows();
+      validateMapping();
+    });
+
+    body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 1; renderStep(); });
+    body.querySelector('#wiz-save-mapping').addEventListener('change', e => { state.saveMapping = e.target.checked; });
+    body.querySelector('#wiz-next').addEventListener('click', () => { state.step = 3; renderStep(); });
+  }
+
+  function getDataRows() {
+    // Convierte las filas crudas a objetos con header como key, saltando las filas de header
+    const headerIdx = state.headerRow - 1;
+    const headers = state.headers;
+    const rawRows = state.workbookRows.slice(headerIdx + 1);
+    return rawRows.map(row => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        obj[h] = row[i];
+      });
+      return obj;
+    }).filter(row => Object.values(row).some(v => v !== '' && v !== null && v !== undefined));
+  }
+
+  function renderStep3Preview(body) {
+    const dataRows = getDataRows();
+    let result;
+    try {
+      result = M.importExcelUnidades(proyectoId, dataRows, state.mapping, { dryRun: true });
+    } catch (err) {
+      body.innerHTML = `
+        <h2 style="margin-bottom:14px;">Preview</h2>
+        <div class="alert alert-danger">❌ ${err.message}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="wiz-back">← Volver al mapeo</button>
+        </div>
+      `;
+      body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 2; renderStep(); });
+      return;
+    }
+    state.dryRunResult = result;
+    state.dataRows = dataRows;
+
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Preview</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Validación previa antes de importar. Nada se ha guardado todavía.</p>
+
+      <div style="display:flex;gap:14px;margin-bottom:18px;font-size:12px;">
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 1</div><div>Subir</div></div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 2</div><div>Mapear</div></div>
+        <div style="flex:1;background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.3);border-radius:8px;padding:10px 14px;color:var(--brand-accent-strong);"><div style="font-weight:600;">PASO 3 · ACTUAL</div><div>Preview</div></div>
+        <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">PASO 4</div><div>Importar</div></div>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:18px;">
+        <div class="stat-box"><div class="lbl">Total filas</div><div class="val">${result.total_filas}</div></div>
+        <div class="stat-box"><div class="lbl">Válidas</div><div class="val" style="color:#16a34a;">${result.filas_validas}</div></div>
+        <div class="stat-box"><div class="lbl">Inválidas</div><div class="val" style="color:#dc2626;">${result.filas_invalidas}</div></div>
+        <div class="stat-box"><div class="lbl">Ignoradas</div><div class="val" style="color:#94a3b8;">${result.unidades_ignoradas}</div></div>
+      </div>
+
+      ${result.preview.length > 0 ? `
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:8px;">Primeras filas con mapping aplicado</h4>
+        <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:0;overflow-x:auto;margin-bottom:14px;">
+          <table style="width:100%;font-size:12px;">
+            <thead>
+              <tr style="background:#f1f5f9;">
+                ${(() => {
+                  const usedKeys = Object.values(state.mapping).filter(k => k && k !== '_ignore');
+                  return usedKeys.slice(0, 8).map(k => `<th style="padding:6px;text-align:left;color:#475569;font-size:10px;text-transform:uppercase;">${k}</th>`).join('');
+                })()}
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${result.preview.map(p => {
+                const usedKeys = Object.values(state.mapping).filter(k => k && k !== '_ignore').slice(0, 8);
+                const cellStyle = p.__error ? 'background:#fef2f2;' : '';
+                return `<tr style="border-top:1px solid #e2e8f0;${cellStyle}">
+                  ${usedKeys.map(k => `<td style="padding:6px;">${p[k] === undefined ? '—' : (typeof p[k] === 'object' ? JSON.stringify(p[k]) : p[k])}</td>`).join('')}
+                  <td style="padding:6px;font-size:11px;color:#dc2626;">${p.__error || '✓'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
+
+      ${result.errores.length > 0 ? `
+        <details style="margin-bottom:14px;">
+          <summary style="cursor:pointer;font-size:12px;color:#dc2626;font-weight:600;">▶ Ver ${result.errores.length} errores</summary>
+          <div style="max-height:200px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:11px;">
+            ${result.errores.slice(0, 50).map(e => `<div style="margin-bottom:4px;"><code>Fila ${e.fila}</code> · ${e.numero}: ${e.errores.join('; ')}</div>`).join('')}
+            ${result.errores.length > 50 ? `<div style="font-style:italic;color:#991b1b;">... y ${result.errores.length - 50} más</div>` : ''}
+          </div>
+        </details>
+      ` : ''}
+
+      <div class="alert alert-info" style="font-size:12px;">
+        Al confirmar: se realizará <strong>upsert</strong> por <code>(proyecto_id, external_id)</code>. Las unidades existentes se actualizan, las nuevas se crean. ${state.saveMapping ? `El mapeo se guardará para futuros uploads de ${inm ? inm.nombre_publico : 'esta inmobiliaria'}.` : ''}
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-back">← Volver al mapeo</button>
+        <button type="button" class="btn btn-primary" id="wiz-confirm" ${result.filas_validas === 0 ? 'disabled' : ''}>
+          ${result.filas_validas === 0 ? 'Sin filas para importar' : `Importar ${result.filas_validas} unidades`}
+        </button>
+      </div>
+    `;
+    body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 2; renderStep(); });
+    body.querySelector('#wiz-confirm').addEventListener('click', () => { state.step = 4; renderStep(); });
+  }
+
+  function renderStep4Result(body) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:#6b7280;">⏳ Importando…</div>';
+    setTimeout(() => {
+      try {
+        // Persistir mapping si corresponde
+        if (state.saveMapping) {
+          M.saveMapeoForInmobiliaria(proyecto.inmobiliaria_id, {
+            nombre: `Mapeo ${inm ? inm.nombre_publico : ''}`,
+            header_row: state.headerRow,
+            columnas: state.mapping
+          });
+        }
+        // Importación real
+        const result = M.importExcelUnidades(proyectoId, state.dataRows, state.mapping, { dryRun: false });
+        state.importResult = result;
+
+        body.innerHTML = `
+          <h2 style="margin-bottom:6px;">Importación completada</h2>
+
+          <div style="display:flex;gap:14px;margin-bottom:18px;font-size:12px;">
+            <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 1</div></div>
+            <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 2</div></div>
+            <div style="flex:1;background:#f1f5f9;border-radius:8px;padding:10px 14px;color:#94a3b8;"><div style="font-weight:600;">✓ PASO 3</div></div>
+            <div style="flex:1;background:rgba(46,204,113,0.15);border:1px solid var(--brand-accent);border-radius:8px;padding:10px 14px;color:var(--brand-accent-strong);"><div style="font-weight:600;">✓ PASO 4</div><div>Importado</div></div>
+          </div>
+
+          <div class="alert ${result.filas_invalidas > 0 ? 'alert-warning' : 'alert-success'}" style="margin-bottom:18px;">
+            ${result.filas_invalidas > 0
+              ? `⚠ Importación parcial: ${result.unidades_creadas + result.unidades_actualizadas} unidades procesadas, ${result.filas_invalidas} con error.`
+              : `✓ Importación exitosa en ${result.duracion_ms}ms.`
+            }
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-box"><div class="lbl">Unidades creadas</div><div class="val" style="color:#16a34a;">${result.unidades_creadas}</div></div>
+            <div class="stat-box"><div class="lbl">Unidades actualizadas</div><div class="val" style="color:#2563eb;">${result.unidades_actualizadas}</div></div>
+            <div class="stat-box"><div class="lbl">Ignoradas</div><div class="val" style="color:#94a3b8;">${result.unidades_ignoradas}</div></div>
+            <div class="stat-box"><div class="lbl">Con error</div><div class="val" style="color:#dc2626;">${result.filas_invalidas}</div></div>
+          </div>
+
+          ${result.errores.length > 0 ? `
+            <details style="margin-top:18px;">
+              <summary style="cursor:pointer;font-size:12px;color:#dc2626;font-weight:600;">▶ Detalle de ${result.errores.length} errores</summary>
+              <div style="max-height:200px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:11px;">
+                ${result.errores.slice(0, 100).map(e => `<div style="margin-bottom:4px;"><code>Fila ${e.fila}</code> · ${e.numero}: ${e.errores.join('; ')}</div>`).join('')}
+              </div>
+            </details>
+          ` : ''}
+
+          ${state.saveMapping ? `<div style="margin-top:14px;font-size:12px;color:var(--brand-accent-strong);">✓ Mapeo guardado para ${inm ? inm.nombre_publico : 'esta inmobiliaria'}. Próximos uploads del mismo formato lo aplicarán automáticamente.</div>` : ''}
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-primary" id="wiz-close">Cerrar</button>
+          </div>
+        `;
+        body.querySelector('#wiz-close').addEventListener('click', close);
+      } catch (err) {
+        body.innerHTML = `
+          <h2>Error durante importación</h2>
+          <div class="alert alert-danger">${err.message}</div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="wiz-back">← Volver</button>
+          </div>
+        `;
+        body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 3; renderStep(); });
+      }
+    }, 80);
+  }
+
+  renderStep();
 }
 
 // =============================================================================

@@ -983,6 +983,281 @@
   }
 
   // ---------------------------------------------------------------------------
+  // EXCEL IMPORT — Mapping + ingestion engine
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Catálogo de campos del modelo Unidad que pueden mapearse desde un Excel.
+   * Cada entrada define el target field, label legible, tipo, y si es requerido.
+   */
+  const EXCEL_FIELDS_UNIDAD = [
+    { key: "external_id",              label: "ID externo (opcional)",            type: "string", required: false, note: "Si vacío, se usa 'numero'" },
+    { key: "numero",                   label: "Número / Depto",                   type: "string", required: true },
+    { key: "tipo",                     label: "Tipo (departamento/local/...)",    type: "enum",   required: false, enum: ["departamento","local","oficina","bodega","estacionamiento"], default: "departamento" },
+    { key: "tipologia",                label: "Tipología (1d1b, 2d2b, ...)",      type: "enum",   required: true,  enum: ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"] },
+    { key: "modelo",                   label: "Modelo arquitectónico",            type: "string", required: false },
+    { key: "orientacion",              label: "Orientación (N/S/O/P)",            type: "string", required: false },
+    { key: "piso",                     label: "Piso",                             type: "int",    required: false },
+    { key: "superficie_total",         label: "Superficie total (m²)",            type: "decimal", required: false },
+    { key: "superficie_interior",      label: "Superficie interior (m²)",         type: "decimal", required: false },
+    { key: "superficie_terraza",       label: "Superficie terraza (m²)",          type: "decimal", required: false },
+    { key: "precio_uf",                label: "Precio UF",                        type: "decimal", required: true },
+    { key: "descuento_porcentaje",     label: "Descuento %",                      type: "decimal", required: false },
+    { key: "bono_pie_porcentaje",      label: "Bono pie %",                       type: "decimal", required: false },
+    { key: "estacionamiento_incluido", label: "Estacionamientos incluidos",       type: "int",    required: false, default: 0 },
+    { key: "bodega_incluida",          label: "Bodegas incluidas",                type: "int",    required: false, default: 0 },
+    { key: "estado",                   label: "Estado (disponible/...)",          type: "enum",   required: false, enum: ["disponible","reservada","vendida","bloqueada"], default: "disponible" }
+  ];
+
+  function getExcelFieldsUnidad() { return EXCEL_FIELDS_UNIDAD; }
+  function getExcelFieldByKey(key) { return EXCEL_FIELDS_UNIDAD.find(f => f.key === key); }
+
+  // ---- Mapeos guardados por inmobiliaria ----
+
+  function getMapeoForInmobiliaria(inmobiliariaId) {
+    ensureArr("mapeos_excel");
+    return window.DATA.mapeos_excel.find(m => m.inmobiliaria_id === inmobiliariaId) || null;
+  }
+
+  function saveMapeoForInmobiliaria(inmobiliariaId, { nombre, header_row, columnas }) {
+    ensureArr("mapeos_excel");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede guardar mapeos");
+    if (!inmobiliariaId) throw new Error("inmobiliaria_id requerido");
+    if (!columnas || typeof columnas !== 'object') throw new Error("columnas requerido");
+
+    const idx = window.DATA.mapeos_excel.findIndex(m => m.inmobiliaria_id === inmobiliariaId);
+    const entry = {
+      id: idx >= 0 ? window.DATA.mapeos_excel[idx].id : uid("map"),
+      inmobiliaria_id: inmobiliariaId,
+      nombre: nombre || "Mapeo default",
+      header_row: Number(header_row || 1),
+      columnas,
+      created_at: idx >= 0 ? window.DATA.mapeos_excel[idx].created_at : nowIso(),
+      updated_at: nowIso()
+    };
+    if (idx >= 0) {
+      window.DATA.mapeos_excel[idx] = entry;
+    } else {
+      window.DATA.mapeos_excel.push(entry);
+    }
+    persist();
+    return entry;
+  }
+
+  function deleteMapeoForInmobiliaria(inmobiliariaId) {
+    ensureArr("mapeos_excel");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin");
+    const i = window.DATA.mapeos_excel.findIndex(m => m.inmobiliaria_id === inmobiliariaId);
+    if (i < 0) return false;
+    window.DATA.mapeos_excel.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  // ---- Normalización de valores crudos del Excel ----
+
+  /** Normaliza un valor crudo de celda según el tipo del target field. */
+  function normalizeCellValue(raw, fieldDef) {
+    if (raw === null || raw === undefined || raw === '') {
+      return fieldDef.default !== undefined ? fieldDef.default : null;
+    }
+
+    const s = String(raw).trim();
+    if (s === '') return fieldDef.default !== undefined ? fieldDef.default : null;
+
+    if (fieldDef.type === 'int') {
+      // Acepta "5", "5.0", "5,00", "  5 "
+      const cleaned = s.replace(/[^\d-]/g, '').replace(/\.0+$/, '');
+      const n = parseInt(cleaned, 10);
+      return isNaN(n) ? null : n;
+    }
+    if (fieldDef.type === 'decimal') {
+      // Acepta "1234.56", "1234,56", "1.234,56", "1,234.56", "UF 1234"
+      let cleaned = s.replace(/[^\d.,\-]/g, '');
+      // Si tiene ambos . y , → asumir . separador miles, , decimal (formato chileno)
+      if (cleaned.includes(',') && cleaned.includes('.')) {
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      } else if (cleaned.includes(',') && !cleaned.includes('.')) {
+        // Solo , → es decimal
+        cleaned = cleaned.replace(',', '.');
+      }
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? null : n;
+    }
+    if (fieldDef.type === 'enum') {
+      // Normalizar a lowercase + remove spaces + match enum values
+      const norm = s.toLowerCase().replace(/\s+/g, '').replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i').replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u');
+      // Sinónimos comunes
+      const synonyms = {
+        // tipologías
+        'studio': 'studio', 'estudio': 'studio',
+        '1d1b': '1d1b', '1d': '1d1b', '1-1': '1d1b',
+        '2d1b': '2d1b', '2-1': '2d1b',
+        '2d2b': '2d2b', '2-2': '2d2b',
+        '3d2b': '3d2b', '3-2': '3d2b',
+        '3d3b': '3d3b', '3-3': '3d3b',
+        '4d3b': '4d3b', '4-3': '4d3b',
+        // estados
+        'disponible': 'disponible', 'disp': 'disponible', 'available': 'disponible', 'libre': 'disponible',
+        'reservada': 'reservada', 'reserva': 'reservada', 'reservado': 'reservada',
+        'vendida': 'vendida', 'vendido': 'vendida', 'sold': 'vendida',
+        'bloqueada': 'bloqueada', 'bloqueado': 'bloqueada', 'blocked': 'bloqueada', 'pausada': 'bloqueada',
+        // tipos
+        'depto': 'departamento', 'departamento': 'departamento', 'dpto': 'departamento',
+        'local': 'local',
+        'oficina': 'oficina', 'office': 'oficina',
+        'bodega': 'bodega', 'bod': 'bodega',
+        'estacionamiento': 'estacionamiento', 'est': 'estacionamiento', 'parking': 'estacionamiento'
+      };
+      if (synonyms[norm]) return synonyms[norm];
+      if (fieldDef.enum.includes(norm)) return norm;
+      return null; // valor inválido, normalizer rechazará la fila
+    }
+    return s; // string default
+  }
+
+  /**
+   * Motor de importación de Excel.
+   * @param {string} proyectoId
+   * @param {Array<object>} rows - array de objetos {ExcelHeader: value, ...}
+   * @param {object} mapping - { ExcelHeader: targetFieldKey | null }
+   * @param {object} options - { dryRun: boolean }
+   * @returns {object} resultado { creadas, actualizadas, ignoradas, errores: [...] }
+   */
+  function importExcelUnidades(proyectoId, rows, mapping, options = {}) {
+    ensureArr("unidades");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede importar Excel");
+
+    const proyecto = window.DATA.proyectos.find(p => p.id === proyectoId);
+    if (!proyecto) throw new Error("Proyecto no existe");
+
+    const dryRun = !!options.dryRun;
+    const start = Date.now();
+    const result = {
+      total_filas: rows.length,
+      filas_validas: 0,
+      filas_invalidas: 0,
+      unidades_creadas: 0,
+      unidades_actualizadas: 0,
+      unidades_ignoradas: 0,
+      errores: [],
+      preview: [] // primeras 5 filas mapeadas (para dryRun)
+    };
+
+    // Construir reverse-mapping: target field → excel header
+    const targetFieldsUsed = {};
+    for (const [excelHeader, targetKey] of Object.entries(mapping)) {
+      if (targetKey && targetKey !== '_ignore') {
+        targetFieldsUsed[targetKey] = excelHeader;
+      }
+    }
+
+    // Validar que campos requeridos estén mapeados
+    const required = EXCEL_FIELDS_UNIDAD.filter(f => f.required);
+    const missingRequired = required.filter(f => !targetFieldsUsed[f.key] && !(f.key === 'external_id' && targetFieldsUsed['numero']));
+    if (missingRequired.length > 0) {
+      throw new Error("Faltan campos requeridos en el mapeo: " + missingRequired.map(f => f.label).join(", "));
+    }
+
+    rows.forEach((row, idx) => {
+      try {
+        // Aplicar mapping → objeto unidad cruda
+        const unidadData = {};
+        for (const [excelHeader, targetKey] of Object.entries(mapping)) {
+          if (!targetKey || targetKey === '_ignore') continue;
+          const fieldDef = getExcelFieldByKey(targetKey);
+          if (!fieldDef) continue;
+          const raw = row[excelHeader];
+          const normalized = normalizeCellValue(raw, fieldDef);
+          if (normalized !== null && normalized !== undefined) {
+            unidadData[targetKey] = normalized;
+          } else if (fieldDef.default !== undefined) {
+            unidadData[targetKey] = fieldDef.default;
+          }
+        }
+
+        // Saltar filas totalmente vacías
+        if (!unidadData.numero || String(unidadData.numero).trim() === '') {
+          result.unidades_ignoradas++;
+          return;
+        }
+
+        // external_id default = numero si no se mapeó
+        if (!unidadData.external_id) unidadData.external_id = String(unidadData.numero).trim();
+
+        unidadData.proyecto_id = proyectoId;
+
+        // Validar con el modelo
+        const errors = validateUnidad(unidadData);
+        if (errors.length > 0) {
+          result.filas_invalidas++;
+          result.errores.push({
+            fila: idx + 1,
+            numero: unidadData.numero || '?',
+            errores: errors
+          });
+          if (result.preview.length < 5) result.preview.push({ ...unidadData, __error: errors.join('; ') });
+          return;
+        }
+
+        result.filas_validas++;
+        if (result.preview.length < 5) result.preview.push({ ...unidadData });
+
+        if (dryRun) return;
+
+        // Upsert real: existe por (proyecto_id, external_id)?
+        const existing = window.DATA.unidades.find(
+          un => un.proyecto_id === proyectoId && un.external_id === unidadData.external_id
+        );
+        if (existing) {
+          updateUnidad(existing.id, unidadData);
+          result.unidades_actualizadas++;
+        } else {
+          addUnidad(unidadData);
+          result.unidades_creadas++;
+        }
+      } catch (e) {
+        result.filas_invalidas++;
+        result.errores.push({
+          fila: idx + 1,
+          numero: row.numero || '?',
+          errores: [e.message]
+        });
+      }
+    });
+
+    result.duracion_ms = Date.now() - start;
+
+    if (!dryRun) {
+      // Recompute estado del proyecto (regla 8)
+      recomputeProyectoEstado(proyectoId);
+      // Audit log entry
+      addAuditEntry({
+        adapter: 'excel-upload',
+        modo: 'manual',
+        proyecto_id: proyectoId,
+        proyectos_recibidos: 1,
+        proyectos_creados: 0,
+        proyectos_actualizados: 1,
+        proyectos_invalidados: 0,
+        unidades_recibidas: rows.length,
+        unidades_creadas: result.unidades_creadas,
+        unidades_actualizadas: result.unidades_actualizadas,
+        unidades_ignoradas: result.unidades_ignoradas,
+        errores: result.errores.map(e => ({ external_id: e.numero, msg: e.errores.join('; ') })),
+        status: result.filas_invalidas > 0 ? 'partial' : 'success',
+        duracion_ms: result.duracion_ms
+      });
+      persist();
+    }
+
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
   // CRUD: Proyectos
   // ---------------------------------------------------------------------------
   function addProyecto(p) {
@@ -1476,6 +1751,10 @@
     addArchivoProyecto, updateArchivoProyecto, deleteArchivoProyecto,
     archivosByProyecto, archivoById,
     TIPOS_ARCHIVO_PROYECTO, TIPOS_ARCHIVO_LABELS, ARCHIVO_PROYECTO_MAX_BYTES,
+    // Excel import
+    EXCEL_FIELDS_UNIDAD, getExcelFieldsUnidad, getExcelFieldByKey,
+    getMapeoForInmobiliaria, saveMapeoForInmobiliaria, deleteMapeoForInmobiliaria,
+    normalizeCellValue, importExcelUnidades,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
     setCondicionesProyecto,
