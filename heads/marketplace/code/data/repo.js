@@ -509,7 +509,8 @@
 
       // Pie
       pie_porcentaje: Number(data.pie_porcentaje),
-      bono_pie_uf: Number(data.bono_pie_uf || 0),
+      bono_pie_porcentaje: Number(data.bono_pie_porcentaje || 0),
+      bono_pie_uf: Number(data.bono_pie_uf || 0),   // snapshot UF derivado
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
       pie_cuotas_n: Number(data.pie_cuotas_n || 0),
       pie_cuota_mensual_uf: Number(data.pie_cuota_mensual_uf || 0),
