@@ -893,6 +893,10 @@ function renderCotizador(unidadId) {
   const bodPrecioDefault = 80;    // UF bodega (referencial)
   const estCantDefault = u.estacionamiento_incluido || 0;
   const bodCantDefault = u.bodega_incluida || 0;
+  // Bono pie implícito: % ya incluido en u.precio_uf según configuración del proyecto
+  const bonoImplicitoPorc = Number(p.bono_pie_implicito_porcentaje) || 0;
+  // El cotizador abre con este bono pre-cargado → precio efectivo == precio cargado
+  const bonoDefault = bonoImplicitoPorc;
 
   const formStyle = `
     .cot-card { background:#fff; border:1px solid var(--color-border); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
@@ -962,8 +966,9 @@ function renderCotizador(unidadId) {
               <input type="number" id="c-pie" value="${piePorcDefault}" min="0" max="100" step="1">
             </div>
             <div class="cot-field">
-              <label>Bono pie (%)</label>
-              <input type="number" id="c-bono" value="0" min="0" max="100" step="0.1">
+              <label>Bono pie (%) <span style="font-weight:400;color:#9ca3af;">máx 20</span></label>
+              <input type="number" id="c-bono" value="${bonoDefault}" min="0" max="20" step="0.1">
+              ${bonoImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--brand-secondary);margin-top:4px;line-height:1.3;">⚠ Implícito en precio: <strong>${bonoImplicitoPorc}%</strong>. Si bajás → descuento. Si subís → mayor bono.</div>` : ''}
             </div>
             <div class="cot-field">
               <label>Pago inicial (%)</label>
@@ -1097,12 +1102,22 @@ function renderCotizador(unidadId) {
     const tasa = num('c-tasa');
     const ufClp = DATA.ufReferencia.valor_clp;
 
-    // Nueva lógica de bono pie: INFLA el precio de la unidad
-    // Ej: 4000 UF + bono 10% = 4400 UF (precio efectivo)
-    // El bono representa el incremento sobre el precio base
-    const precioUnidadBase = precioUnidad;
+    // Bono pie INFLA el precio de la unidad
+    // Si el proyecto ya tiene un bono implícito en el precio cargado:
+    //   precioUnidad (sistema) = precio_real × (1 + implicito%)
+    //   → derivamos precio_real = precioUnidad / (1 + implicito%)
+    // Y aplicamos el bono actual sobre el precio_real:
+    //   precioUnidadConBono = precio_real × (1 + bonoPorc%)
+    // Si bonoPorc == bonoImplicitoPorc → precio queda igual al cargado
+    // Si bonoPorc < implicito → precio baja (efectivo descuento)
+    // Si bonoPorc > implicito → precio sube (bono mayor)
+    const precioUnidadBase = bonoImplicitoPorc > 0
+      ? precioUnidad / (1 + bonoImplicitoPorc / 100)
+      : precioUnidad;
     const precioUnidadConBono = precioUnidadBase * (1 + bonoPorc / 100);
     const bonoUf = precioUnidadConBono - precioUnidadBase;
+    // Delta vs el precio cargado en sistema (positivo = aumento, negativo = descuento)
+    const deltaVsImplicito = precioUnidadConBono - precioUnidad;
 
     const estTotalUf = estCant * estPrecio;
     const bodTotalUf = bodCant * bodPrecio;
@@ -1151,9 +1166,21 @@ function renderCotizador(unidadId) {
 
     // Render
     const rEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-    const unidadLabel = bonoPorc > 0
-      ? `UF ${fmtUf(precioUnidadConBono)} (base UF ${fmtUf(precioUnidadBase)} + bono ${bonoPorc}%)`
-      : `UF ${fmtUf(precioUnidadBase)}`;
+    let unidadLabel;
+    if (bonoImplicitoPorc > 0) {
+      // Proyecto con bono implícito: mostrar el delta vs lo cargado
+      if (Math.abs(deltaVsImplicito) < 0.01) {
+        unidadLabel = `UF ${fmtUf(precioUnidadConBono)} (precio lista, bono implícito ${bonoImplicitoPorc}%)`;
+      } else if (deltaVsImplicito > 0) {
+        unidadLabel = `UF ${fmtUf(precioUnidadConBono)} (lista UF ${fmtUf(precioUnidad)} + bono extra ${(bonoPorc-bonoImplicitoPorc).toFixed(1)}% = +UF ${fmtUf(deltaVsImplicito)})`;
+      } else {
+        unidadLabel = `UF ${fmtUf(precioUnidadConBono)} (lista UF ${fmtUf(precioUnidad)} − descuento ${(bonoImplicitoPorc-bonoPorc).toFixed(1)}% = −UF ${fmtUf(-deltaVsImplicito)})`;
+      }
+    } else {
+      unidadLabel = bonoPorc > 0
+        ? `UF ${fmtUf(precioUnidadConBono)} (base UF ${fmtUf(precioUnidadBase)} + bono ${bonoPorc}%)`
+        : `UF ${fmtUf(precioUnidadBase)}`;
+    }
     rEl('r-unidad', unidadLabel);
     rEl('r-est', estCant > 0 ? `${estCant} × UF ${fmtUf(estPrecio)} = UF ${fmtUf(estTotalUf)}` : '—');
     rEl('r-bod', bodCant > 0 ? `${bodCant} × UF ${fmtUf(bodPrecio)} = UF ${fmtUf(bodTotalUf)}` : '—');
@@ -1194,6 +1221,7 @@ function renderCotizador(unidadId) {
 
     lastCalc = {
       precioUnidad, precioUnidadBase, precioUnidadConBono,
+      bonoImplicitoPorc, deltaVsImplicito,
       estCant, estPrecio, bodCant, bodPrecio,
       estTotalUf, bodTotalUf, precioTotalUf,
       piePorc, bonoPorc, bonoUf, pieTotalUf, pieRealUf, pieRealPorc,
@@ -1818,6 +1846,8 @@ function modalAsignarCotizacion(unidad, calc) {
         pie_porcentaje: calc.piePorc,
         bono_pie_porcentaje: calc.bonoPorc,
         bono_pie_uf: calc.bonoUf,
+        bono_pie_implicito_porcentaje: calc.bonoImplicitoPorc,
+        delta_vs_implicito_uf: calc.deltaVsImplicito,
         pie_upfront_porcentaje: calc.upfrontPorc,
         pie_upfront_uf: calc.upfrontUf,
         pie_cuotas_n: calc.cuotasN,
@@ -2227,12 +2257,27 @@ async function generarPdfCotizacion(cotizacionId) {
   const saldoUf = precioTotalUf - pieTotalUf;
   const totalUf = cot.total_clp / ufClp;
 
-  // ===== PRECIO TOTAL (con adicionales y bono inflado) =====
+  // ===== PRECIO TOTAL (con adicionales, bono y delta vs implícito) =====
   drawSectionHeader('DESGLOSE DEL PRECIO');
   const precioUnidadBase = cot.precio_unidad_base_uf || cot.precio_uf;
   const precioUnidadConBono = cot.precio_unidad_con_bono_uf || (precioUnidadBase + bonoUf);
+  const bonoImplicito = Number(cot.bono_pie_implicito_porcentaje) || 0;
+  const delta = Number(cot.delta_vs_implicito_uf) || 0;
 
-  if (bonoUf > 0) {
+  if (bonoImplicito > 0) {
+    // Proyecto con bono implícito: mostrar lista + ajuste si lo hay
+    drawRow('Precio lista (con bono implícito):', `UF ${fmt(cot.precio_uf)}    (~${fmtClpN(cot.precio_uf * ufClp)})`);
+    drawRow(`Bono implícito incluido:`, `${bonoImplicito}%`);
+    if (Math.abs(delta) >= 0.01) {
+      if (delta > 0) {
+        drawRow(`Bono extra (+${(bonoPorc - bonoImplicito).toFixed(1)}%):`, `+UF ${fmt(delta)}    (~+${fmtClpN(delta * ufClp)})`, { highlight: true });
+      } else {
+        drawRow(`Descuento (−${(bonoImplicito - bonoPorc).toFixed(1)}%):`, `−UF ${fmt(-delta)}    (~−${fmtClpN(-delta * ufClp)})`, { highlight: true });
+      }
+      drawRow('Unidad ajustada:', `UF ${fmt(precioUnidadConBono)}    (~${fmtClpN(precioUnidadConBono * ufClp)})`, { bold: true });
+    }
+  } else if (bonoUf > 0) {
+    // Proyecto sin bono implícito + bono ofrecido en cotización
     drawRow('Unidad (base):', `UF ${fmt(precioUnidadBase)}    (~${fmtClpN(precioUnidadBase * ufClp)})`);
     drawRow(`Bono pie (+${bonoPorc}%):`, `+UF ${fmt(bonoUf)}    (~+${fmtClpN(bonoUf * ufClp)})`, { highlight: true });
     drawRow('Unidad con bono:', `UF ${fmt(precioUnidadConBono)}    (~${fmtClpN(precioUnidadConBono * ufClp)})`, { bold: true });

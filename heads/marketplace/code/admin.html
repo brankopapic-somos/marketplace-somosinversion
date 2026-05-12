@@ -789,7 +789,8 @@ async function modalImportarExcelInmobiliaria(inmobiliariaId) {
               etapa: d.etapaSugerida || 'en_verde',
               anio_entrega: new Date().getFullYear() + 1,
               precio_uf_min: 100,
-              precio_uf_max: 999
+              precio_uf_max: 999,
+              bono_pie_implicito_porcentaje: 0
             }
           };
         });
@@ -879,6 +880,13 @@ async function modalImportarExcelInmobiliaria(inmobiliariaId) {
                       <option value="entrega_inmediata" ${p.newData.etapa === 'entrega_inmediata' ? 'selected' : ''}>Entrega inmediata</option>
                     </select></div>
                   <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Año entrega</label><input type="number" data-newdata="${i}.anio_entrega" value="${p.newData.anio_entrega}" min="2020" max="2050" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+                  <div style="grid-column:1/-1;background:#fffbeb;border-left:3px solid var(--brand-secondary);border-radius:4px;padding:8px 10px;">
+                    <label style="display:block;color:#92400e;font-weight:600;margin-bottom:2px;">Bono pie implícito en precios (%) — máx 20%</label>
+                    <input type="number" data-newdata="${i}.bono_pie_implicito_porcentaje" value="${p.newData.bono_pie_implicito_porcentaje ?? 0}" min="0" max="20" step="0.1" style="width:120px;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+                    <div style="font-size:10px;color:#78350f;margin-top:4px;line-height:1.3;">
+                      Si los precios del Excel ya vienen inflados con bono, indicá el %. Default 0 (precios "limpios").
+                    </div>
+                  </div>
                 </div>
               </div>
             ` : ''}
@@ -1800,6 +1808,14 @@ function proyectoForm(id) {
         <div class="field"><label>Precio UF mín *</label><input type="number" name="precio_uf_min" value="${p.precio_uf_min || ''}" min="1" required></div>
         <div class="field"><label>Precio UF máx *</label><input type="number" name="precio_uf_max" value="${p.precio_uf_max || ''}" min="1" required></div>
         <div class="field"><label>Pie %</label><input type="number" name="pie_porcentaje" value="${p.pie_porcentaje || 20}" min="0" max="100"></div>
+        <div class="field full" style="background:#fffbeb;border-left:3px solid var(--brand-secondary);border-radius:6px;padding:10px;">
+          <label style="color:#92400e;">Bono pie implícito en precios (%) — máx 20%</label>
+          <input type="number" name="bono_pie_implicito_porcentaje" value="${p.bono_pie_implicito_porcentaje ?? 0}" min="0" max="20" step="0.1" style="max-width:120px;">
+          <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.4;">
+            Si los precios cargados de las unidades <strong>ya incluyen un bono pie inflado</strong>, indicá el % aquí.
+            El cotizador lo aplicará automáticamente para que al ajustar el bono se descuente o aumente el precio correctamente. Dejá en 0 si los precios son "limpios".
+          </div>
+        </div>
         <div class="field"><label>Estado negocio</label>
           <select name="estado_negocio">
             <option value="activo" ${p.estado_negocio === 'activo' ? 'selected' : ''}>Activo</option>

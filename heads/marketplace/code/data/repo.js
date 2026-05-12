@@ -513,6 +513,8 @@
       pie_porcentaje: Number(data.pie_porcentaje),
       bono_pie_porcentaje: Number(data.bono_pie_porcentaje || 0),
       bono_pie_uf: Number(data.bono_pie_uf || 0),
+      bono_pie_implicito_porcentaje: Number(data.bono_pie_implicito_porcentaje || 0),
+      delta_vs_implicito_uf: Number(data.delta_vs_implicito_uf || 0),
       pie_upfront_porcentaje: Number(data.pie_upfront_porcentaje || 0),
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
       pie_cuotas_n: Number(data.pie_cuotas_n || 0),
@@ -1322,6 +1324,7 @@
             anio_entrega: nd.anio_entrega || new Date().getFullYear() + 1,
             precio_uf_min: nd.precio_uf_min || 100,
             precio_uf_max: nd.precio_uf_max || 999,
+            bono_pie_implicito_porcentaje: Number(nd.bono_pie_implicito_porcentaje) || 0,
             tipologias_disponibles: [],
             estado_negocio: "activo",
             estado_ingesta: "ok"
@@ -1621,6 +1624,8 @@
       precio_uf_min: Number(p.precio_uf_min),
       precio_uf_max: Number(p.precio_uf_max),
       pie_porcentaje: p.pie_porcentaje ? Number(p.pie_porcentaje) : null,
+      bono_pie_implicito_porcentaje: p.bono_pie_implicito_porcentaje
+        ? Number(p.bono_pie_implicito_porcentaje) : 0,
       reserva_clp: p.reserva_clp ? Number(p.reserva_clp) : null,
       total_unidades: p.total_unidades || null,
       total_pisos: p.total_pisos || null,
@@ -1759,6 +1764,12 @@
       errs.push("gps_lat fuera de territorio chileno");
     if (p.gps_lon && (p.gps_lon < -76 || p.gps_lon > -66))
       errs.push("gps_lon fuera de territorio chileno");
+    // Bono pie implícito: límite duro 20% según política comercial
+    if (p.bono_pie_implicito_porcentaje !== undefined && p.bono_pie_implicito_porcentaje !== null) {
+      const bip = Number(p.bono_pie_implicito_porcentaje);
+      if (isNaN(bip) || bip < 0 || bip > 20)
+        errs.push("bono_pie_implicito_porcentaje fuera de rango (0-20)");
+    }
     return errs;
   }
 
