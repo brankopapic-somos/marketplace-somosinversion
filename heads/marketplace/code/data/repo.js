@@ -505,6 +505,8 @@
       estacionamiento_precio_uf: Number(data.estacionamiento_precio_uf || 0),
       bodega_cant: Number(data.bodega_cant || 0),
       bodega_precio_uf: Number(data.bodega_precio_uf || 0),
+      precio_unidad_base_uf: Number(data.precio_unidad_base_uf || unidad.precio_uf),
+      precio_unidad_con_bono_uf: Number(data.precio_unidad_con_bono_uf || unidad.precio_uf),
       precio_total_uf: Number(data.precio_total_uf || unidad.precio_uf),
 
       // Pie

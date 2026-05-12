@@ -1097,15 +1097,23 @@ function renderCotizador(unidadId) {
     const tasa = num('c-tasa');
     const ufClp = DATA.ufReferencia.valor_clp;
 
+    // Nueva lógica de bono pie: INFLA el precio de la unidad
+    // Ej: 4000 UF + bono 10% = 4400 UF (precio efectivo)
+    // El bono representa el incremento sobre el precio base
+    const precioUnidadBase = precioUnidad;
+    const precioUnidadConBono = precioUnidadBase * (1 + bonoPorc / 100);
+    const bonoUf = precioUnidadConBono - precioUnidadBase;
+
     const estTotalUf = estCant * estPrecio;
     const bodTotalUf = bodCant * bodPrecio;
-    const precioTotalUf = precioUnidad + estTotalUf + bodTotalUf;
+    // Adicionales NO se inflan con bono pie (solo la unidad principal)
+    const precioTotalUf = precioUnidadConBono + estTotalUf + bodTotalUf;
 
+    // Pie y financiamiento se calculan sobre el precio total ya inflado
     const pieTotalUf = precioTotalUf * (piePorc / 100);
-    // Bono pie: porcentaje del precio total → equivalente UF
-    const bonoUf = precioTotalUf * (bonoPorc / 100);
+    // El bono se "devuelve" al cliente como rebaja del pie
     const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
-    const pieRealPorc = Math.max(0, piePorc - bonoPorc);
+    const pieRealPorc = precioTotalUf > 0 ? (pieRealUf / precioTotalUf) * 100 : 0;
 
     // Upfront y cuota final: porcentaje del precio total → UF
     const upfrontUf = precioTotalUf * (upfrontPorc / 100);
@@ -1129,9 +1137,9 @@ function renderCotizador(unidadId) {
       }
     }
 
-    // Validación del bono: no puede exceder al pie (en %)
-    if (bonoPorc > piePorc) {
-      validationErr = (validationErr ? validationErr + ' ' : '') + `Bono pie (${bonoPorc}%) no puede exceder al pie total (${piePorc}%).`;
+    // Validación del bono: el bono UF (incremento del precio) no puede exceder al pie total
+    if (bonoUf > pieTotalUf) {
+      validationErr = (validationErr ? validationErr + ' ' : '') + `Bono pie (UF ${fmtUf(bonoUf)}) excede el pie total (UF ${fmtUf(pieTotalUf)}). Bajá el bono o subí el % de pie.`;
     }
 
     // Saldo a financiar = precio total - pie total (el bono NO afecta lo que se financia)
@@ -1143,12 +1151,15 @@ function renderCotizador(unidadId) {
 
     // Render
     const rEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-    rEl('r-unidad', `UF ${fmtUf(precioUnidad)}`);
+    const unidadLabel = bonoPorc > 0
+      ? `UF ${fmtUf(precioUnidadConBono)} (base UF ${fmtUf(precioUnidadBase)} + bono ${bonoPorc}%)`
+      : `UF ${fmtUf(precioUnidadBase)}`;
+    rEl('r-unidad', unidadLabel);
     rEl('r-est', estCant > 0 ? `${estCant} × UF ${fmtUf(estPrecio)} = UF ${fmtUf(estTotalUf)}` : '—');
     rEl('r-bod', bodCant > 0 ? `${bodCant} × UF ${fmtUf(bodPrecio)} = UF ${fmtUf(bodTotalUf)}` : '—');
     rEl('r-total-uf', `UF ${fmtUf(precioTotalUf)} (~$ ${fmtClp(precioTotalUf * ufClp)})`);
     rEl('r-pie', `UF ${fmtUf(pieTotalUf)} (${piePorc}%)`);
-    rEl('r-bono', bonoPorc > 0 ? `${bonoPorc}% = − UF ${fmtUf(bonoUf)} (~−$ ${fmtClp(bonoUf * ufClp)})` : '—');
+    rEl('r-bono', bonoPorc > 0 ? `${bonoPorc}% = UF ${fmtUf(bonoUf)} (rebaja al pie)` : '—');
     rEl('r-pie-real', `UF ${fmtUf(pieRealUf)} (~$ ${fmtClp(pieRealUf * ufClp)})`);
 
     // Desglose del pie
@@ -1182,7 +1193,8 @@ function renderCotizador(unidadId) {
     }
 
     lastCalc = {
-      precioUnidad, estCant, estPrecio, bodCant, bodPrecio,
+      precioUnidad, precioUnidadBase, precioUnidadConBono,
+      estCant, estPrecio, bodCant, bodPrecio,
       estTotalUf, bodTotalUf, precioTotalUf,
       piePorc, bonoPorc, bonoUf, pieTotalUf, pieRealUf, pieRealPorc,
       upfrontPorc, upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalPorc, cuotaFinalUf,
@@ -1769,11 +1781,11 @@ function modalAsignarCotizacion(unidad, calc) {
       </div>
       <div style="background:#f8fafc;border:1px solid var(--color-border);border-radius:8px;padding:12px;font-size:12px;color:#374151;margin-bottom:14px;line-height:1.6;">
         <div style="font-weight:600;margin-bottom:6px;color:#1A2744;">Resumen</div>
-        <div>Unidad <strong>${unidad.numero}</strong> · UF ${fmtUf(unidad.precio_uf)}</div>
+        <div>Unidad <strong>${unidad.numero}</strong> · base UF ${fmtUf(calc.precioUnidadBase)}${calc.bonoPorc > 0 ? ` <span style="color:var(--brand-accent-strong);">+ bono ${calc.bonoPorc}% = UF ${fmtUf(calc.precioUnidadConBono)}</span>` : ''}</div>
         ${calc.estCant > 0 ? `<div>+ ${calc.estCant} estac. (UF ${fmtUf(calc.estTotalUf)})</div>` : ''}
         ${calc.bodCant > 0 ? `<div>+ ${calc.bodCant} bod. (UF ${fmtUf(calc.bodTotalUf)})</div>` : ''}
         <div>Precio total: <strong>UF ${fmtUf(calc.precioTotalUf)}</strong></div>
-        <div>Pie ${calc.piePorc}% = UF ${fmtUf(calc.pieTotalUf)} ${calc.bonoPorc > 0 ? `(bono ${calc.bonoPorc}% = −UF ${fmtUf(calc.bonoUf)})` : ''}</div>
+        <div>Pie ${calc.piePorc}% = UF ${fmtUf(calc.pieTotalUf)} ${calc.bonoPorc > 0 ? `(− bono UF ${fmtUf(calc.bonoUf)} rebaja al pie)` : ''}</div>
         <div>Pie real cliente: <strong>UF ${fmtUf(calc.pieRealUf)}</strong></div>
         ${calc.upfrontPorc > 0 || calc.cuotasN > 0 || calc.cuotaFinalPorc > 0 ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">Desglose pie: ${calc.upfrontPorc > 0 ? 'pago inicial ' + calc.upfrontPorc + '% (UF ' + fmtUf(calc.upfrontUf) + ')' : ''} ${calc.cuotasN > 0 ? '· ' + calc.cuotasN + ' cuotas UF ' + fmtUf(calc.pieCuotaMensualUf) : ''} ${calc.cuotaFinalPorc > 0 ? '· final ' + calc.cuotaFinalPorc + '% (UF ' + fmtUf(calc.cuotaFinalUf) + ')' : ''}</div>` : ''}
         <div>Plazo: ${calc.plazoAnios} años (${calc.plazo} meses) · Tasa CAE: ${calc.tasa}%</div>
@@ -1799,6 +1811,8 @@ function modalAsignarCotizacion(unidad, calc) {
         estacionamiento_precio_uf: calc.estPrecio,
         bodega_cant: calc.bodCant,
         bodega_precio_uf: calc.bodPrecio,
+        precio_unidad_base_uf: calc.precioUnidadBase,
+        precio_unidad_con_bono_uf: calc.precioUnidadConBono,
         precio_total_uf: calc.precioTotalUf,
         // Pie
         pie_porcentaje: calc.piePorc,
@@ -2213,9 +2227,18 @@ async function generarPdfCotizacion(cotizacionId) {
   const saldoUf = precioTotalUf - pieTotalUf;
   const totalUf = cot.total_clp / ufClp;
 
-  // ===== PRECIO TOTAL (con adicionales) =====
+  // ===== PRECIO TOTAL (con adicionales y bono inflado) =====
   drawSectionHeader('DESGLOSE DEL PRECIO');
-  drawRow('Unidad:', `UF ${fmt(cot.precio_uf)}    (~${fmtClpN(cot.precio_uf * ufClp)})`);
+  const precioUnidadBase = cot.precio_unidad_base_uf || cot.precio_uf;
+  const precioUnidadConBono = cot.precio_unidad_con_bono_uf || (precioUnidadBase + bonoUf);
+
+  if (bonoUf > 0) {
+    drawRow('Unidad (base):', `UF ${fmt(precioUnidadBase)}    (~${fmtClpN(precioUnidadBase * ufClp)})`);
+    drawRow(`Bono pie (+${bonoPorc}%):`, `+UF ${fmt(bonoUf)}    (~+${fmtClpN(bonoUf * ufClp)})`, { highlight: true });
+    drawRow('Unidad con bono:', `UF ${fmt(precioUnidadConBono)}    (~${fmtClpN(precioUnidadConBono * ufClp)})`, { bold: true });
+  } else {
+    drawRow('Unidad:', `UF ${fmt(precioUnidadBase)}    (~${fmtClpN(precioUnidadBase * ufClp)})`);
+  }
   if (estCant > 0) drawRow(`Estacionamiento (×${estCant}):`, `UF ${fmt(estTotalUf)}    (~${fmtClpN(estTotalUf * ufClp)})`);
   if (bodCant > 0) drawRow(`Bodega (×${bodCant}):`, `UF ${fmt(bodTotalUf)}    (~${fmtClpN(bodTotalUf * ufClp)})`);
   drawRow('Precio total:', `UF ${fmt(precioTotalUf)}    (~${fmtClpN(precioTotalUf * ufClp)})`, { bold: true });
@@ -2224,7 +2247,7 @@ async function generarPdfCotizacion(cotizacionId) {
   // ===== PIE Y CONDICIONES =====
   drawSectionHeader('PIE Y CONDICIONES');
   drawRow(`Pie total (${cot.pie_porcentaje}%):`, `UF ${fmt(pieTotalUf)}    (~${fmtClpN(pieTotalUf * ufClp)})`);
-  if (bonoUf > 0) drawRow('Bono pie:', `${bonoPorc}%  =  −UF ${fmt(bonoUf)}    (~−${fmtClpN(bonoUf * ufClp)})`, { highlight: true });
+  if (bonoUf > 0) drawRow('− Bono pie (rebaja):', `UF ${fmt(bonoUf)}    (~${fmtClpN(bonoUf * ufClp)})`, { highlight: true });
   drawRow('Pie real cliente:', `UF ${fmt(pieRealUf)}    (~${fmtClpN(pieRealUf * ufClp)})`, { bold: true });
 
   if (upfrontUf > 0 || cuotasN > 0 || cuotaFinalUf > 0) {
