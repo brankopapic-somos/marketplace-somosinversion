@@ -987,50 +987,81 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Catálogo de campos del modelo Unidad que pueden mapearse desde un Excel.
-   * Cada entrada define el target field, label legible, tipo, y si es requerido.
+   * Campos de PROYECTO mapeables desde Excel (1 Excel por inmobiliaria, multi-proyecto).
+   * El campo `proyecto_nombre` es REQUERIDO para identificar a qué proyecto pertenece cada fila.
    */
-  const EXCEL_FIELDS_UNIDAD = [
-    { key: "external_id",              label: "ID externo (opcional)",            type: "string", required: false, note: "Si vacío, se usa 'numero'" },
-    { key: "numero",                   label: "Número / Depto",                   type: "string", required: true },
-    { key: "tipo",                     label: "Tipo (departamento/local/...)",    type: "enum",   required: false, enum: ["departamento","local","oficina","bodega","estacionamiento"], default: "departamento" },
-    { key: "tipologia",                label: "Tipología (1d1b, 2d2b, ...)",      type: "enum",   required: true,  enum: ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"] },
-    { key: "modelo",                   label: "Modelo arquitectónico",            type: "string", required: false },
-    { key: "orientacion",              label: "Orientación (N/S/O/P)",            type: "string", required: false },
-    { key: "piso",                     label: "Piso",                             type: "int",    required: false },
-    { key: "superficie_total",         label: "Superficie total (m²)",            type: "decimal", required: false },
-    { key: "superficie_interior",      label: "Superficie interior (m²)",         type: "decimal", required: false },
-    { key: "superficie_terraza",       label: "Superficie terraza (m²)",          type: "decimal", required: false },
-    { key: "precio_uf",                label: "Precio UF",                        type: "decimal", required: true },
-    { key: "descuento_porcentaje",     label: "Descuento %",                      type: "decimal", required: false },
-    { key: "bono_pie_porcentaje",      label: "Bono pie %",                       type: "decimal", required: false },
-    { key: "estacionamiento_incluido", label: "Estacionamientos incluidos",       type: "int",    required: false, default: 0 },
-    { key: "bodega_incluida",          label: "Bodegas incluidas",                type: "int",    required: false, default: 0 },
-    { key: "estado",                   label: "Estado (disponible/...)",          type: "enum",   required: false, enum: ["disponible","reservada","vendida","bloqueada"], default: "disponible" }
+  const EXCEL_FIELDS_PROYECTO = [
+    { key: "proyecto_nombre",            label: "PROYECTO · Nombre",                            type: "string", required: true,  scope: "proyecto" },
+    { key: "proyecto_comuna",            label: "PROYECTO · Comuna",                            type: "string", required: false, scope: "proyecto" },
+    { key: "proyecto_region",            label: "PROYECTO · Región",                            type: "string", required: false, scope: "proyecto" },
+    { key: "proyecto_etapa",             label: "PROYECTO · Etapa (en_blanco/en_verde/...)",   type: "enum",   required: false, scope: "proyecto", enum: ["en_blanco","en_verde","entrega_inmediata"] },
+    { key: "proyecto_entrega_inmediata", label: "PROYECTO · Entrega inmediata? (SI/NO)",        type: "bool",   required: false, scope: "proyecto" }
   ];
 
+  /**
+   * Campos del modelo Unidad mapeables desde Excel.
+   */
+  const EXCEL_FIELDS_UNIDAD = [
+    { key: "external_id",              label: "Unidad · ID externo (opcional)",            type: "string", required: false, scope: "unidad", note: "Si vacío, se usa 'numero'" },
+    { key: "numero",                   label: "Unidad · Número / Depto",                   type: "string", required: true,  scope: "unidad" },
+    { key: "tipo",                     label: "Unidad · Tipo (depto/local/bodega/...)",    type: "enum",   required: false, scope: "unidad", enum: ["departamento","local","oficina","bodega","estacionamiento"], default: "departamento" },
+    { key: "tipologia",                label: "Unidad · Tipología (1d1b, 2d2b...)",        type: "enum",   required: true,  scope: "unidad", enum: ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"] },
+    { key: "modelo",                   label: "Unidad · Modelo arquitectónico",            type: "string", required: false, scope: "unidad" },
+    { key: "orientacion",              label: "Unidad · Orientación (N/S/O/P)",            type: "string", required: false, scope: "unidad" },
+    { key: "piso",                     label: "Unidad · Piso",                             type: "int",    required: false, scope: "unidad" },
+    { key: "superficie_total",         label: "Unidad · Superficie total (m²)",            type: "decimal", required: false, scope: "unidad" },
+    { key: "superficie_interior",      label: "Unidad · Superficie interior (m²)",         type: "decimal", required: false, scope: "unidad" },
+    { key: "superficie_terraza",       label: "Unidad · Superficie terraza (m²)",          type: "decimal", required: false, scope: "unidad" },
+    { key: "precio_uf",                label: "Unidad · Precio UF",                        type: "decimal", required: true,  scope: "unidad" },
+    { key: "descuento_porcentaje",     label: "Unidad · Descuento %",                      type: "decimal", required: false, scope: "unidad" },
+    { key: "bono_pie_porcentaje",      label: "Unidad · Bono pie %",                       type: "decimal", required: false, scope: "unidad" },
+    { key: "estacionamiento_incluido", label: "Unidad · Estacionamientos incluidos",       type: "int",    required: false, scope: "unidad", default: 0 },
+    { key: "bodega_incluida",          label: "Unidad · Bodegas incluidas",                type: "int",    required: false, scope: "unidad", default: 0 },
+    { key: "estado",                   label: "Unidad · Estado (disponible/...)",          type: "enum",   required: false, scope: "unidad", enum: ["disponible","reservada","vendida","bloqueada"], default: "disponible" }
+  ];
+
+  const EXCEL_FIELDS_ALL = [...EXCEL_FIELDS_PROYECTO, ...EXCEL_FIELDS_UNIDAD];
+
   function getExcelFieldsUnidad() { return EXCEL_FIELDS_UNIDAD; }
-  function getExcelFieldByKey(key) { return EXCEL_FIELDS_UNIDAD.find(f => f.key === key); }
+  function getExcelFieldsProyecto() { return EXCEL_FIELDS_PROYECTO; }
+  function getExcelFieldsAll() { return EXCEL_FIELDS_ALL; }
+  function getExcelFieldByKey(key) { return EXCEL_FIELDS_ALL.find(f => f.key === key); }
 
   // ---- Mapeos guardados por inmobiliaria ----
 
-  function getMapeoForInmobiliaria(inmobiliariaId) {
+  /** Busca mapeo por (inmobiliaria, sheet). Si sheet=null, retorna el primero de la inmobiliaria. */
+  function getMapeoForInmobiliariaSheet(inmobiliariaId, sheetName) {
     ensureArr("mapeos_excel");
+    if (sheetName) {
+      const match = window.DATA.mapeos_excel.find(
+        m => m.inmobiliaria_id === inmobiliariaId && m.sheet_name === sheetName
+      );
+      if (match) return match;
+    }
     return window.DATA.mapeos_excel.find(m => m.inmobiliaria_id === inmobiliariaId) || null;
   }
 
-  function saveMapeoForInmobiliaria(inmobiliariaId, { nombre, header_row, columnas }) {
+  /** Backwards-compat: alias del anterior sin sheet. */
+  function getMapeoForInmobiliaria(inmobiliariaId) {
+    return getMapeoForInmobiliariaSheet(inmobiliariaId, null);
+  }
+
+  function saveMapeoForInmobiliaria(inmobiliariaId, { nombre, sheet_name, header_row, columnas }) {
     ensureArr("mapeos_excel");
     const u = currentUser();
     if (!u || u.role !== 'admin') throw new Error("Solo admin puede guardar mapeos");
     if (!inmobiliariaId) throw new Error("inmobiliaria_id requerido");
     if (!columnas || typeof columnas !== 'object') throw new Error("columnas requerido");
 
-    const idx = window.DATA.mapeos_excel.findIndex(m => m.inmobiliaria_id === inmobiliariaId);
+    const sheet = sheet_name || null;
+    const idx = window.DATA.mapeos_excel.findIndex(
+      m => m.inmobiliaria_id === inmobiliariaId && (m.sheet_name || null) === sheet
+    );
     const entry = {
       id: idx >= 0 ? window.DATA.mapeos_excel[idx].id : uid("map"),
       inmobiliaria_id: inmobiliariaId,
-      nombre: nombre || "Mapeo default",
+      sheet_name: sheet,
+      nombre: nombre || ("Mapeo " + (sheet || "default")),
       header_row: Number(header_row || 1),
       columnas,
       created_at: idx >= 0 ? window.DATA.mapeos_excel[idx].created_at : nowIso(),
@@ -1045,15 +1076,83 @@
     return entry;
   }
 
-  function deleteMapeoForInmobiliaria(inmobiliariaId) {
+  function deleteMapeoForInmobiliaria(inmobiliariaId, sheetName) {
     ensureArr("mapeos_excel");
     const u = currentUser();
     if (!u || u.role !== 'admin') throw new Error("Solo admin");
-    const i = window.DATA.mapeos_excel.findIndex(m => m.inmobiliaria_id === inmobiliariaId);
-    if (i < 0) return false;
-    window.DATA.mapeos_excel.splice(i, 1);
+    const filter = sheetName
+      ? (m => m.inmobiliaria_id === inmobiliariaId && m.sheet_name === sheetName)
+      : (m => m.inmobiliaria_id === inmobiliariaId);
+    const idx = window.DATA.mapeos_excel.findIndex(filter);
+    if (idx < 0) return false;
+    window.DATA.mapeos_excel.splice(idx, 1);
     persist();
     return true;
+  }
+
+  /**
+   * Detecta proyectos únicos en el Excel parseado.
+   * @returns {Array} [{ nombreExcel, count, comunaSugerida, etapaSugerida }]
+   */
+  function detectarProyectosExcel(rows, mapping) {
+    const proyectoCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_nombre');
+    if (!proyectoCol) throw new Error("El mapeo no incluye 'PROYECTO · Nombre' — es requerido");
+    const proyectoHeader = proyectoCol[0];
+
+    const comunaCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_comuna');
+    const comunaHeader = comunaCol ? comunaCol[0] : null;
+    const etapaCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_etapa');
+    const etapaHeader = etapaCol ? etapaCol[0] : null;
+    const entregaInmediataCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_entrega_inmediata');
+    const entregaInmediataHeader = entregaInmediataCol ? entregaInmediataCol[0] : null;
+
+    const grupos = new Map();
+    for (const row of rows) {
+      const nombre = String(row[proyectoHeader] || '').trim();
+      if (!nombre) continue;
+      if (!grupos.has(nombre)) {
+        grupos.set(nombre, {
+          nombreExcel: nombre,
+          count: 0,
+          comunaSugerida: null,
+          etapaSugerida: null
+        });
+      }
+      const g = grupos.get(nombre);
+      g.count++;
+
+      if (comunaHeader && !g.comunaSugerida) {
+        const c = String(row[comunaHeader] || '').trim();
+        if (c) g.comunaSugerida = c;
+      }
+      if (etapaHeader && !g.etapaSugerida) {
+        const fieldDef = getExcelFieldByKey('proyecto_etapa');
+        const e = normalizeCellValue(row[etapaHeader], fieldDef);
+        if (e) g.etapaSugerida = e;
+      }
+      // Si no hay etapa pero hay EntregaInmediata=SI → asumir entrega_inmediata
+      if (!g.etapaSugerida && entregaInmediataHeader) {
+        const ei = normalizeCellValue(row[entregaInmediataHeader], { type: 'bool' });
+        if (ei === true) g.etapaSugerida = 'entrega_inmediata';
+      }
+    }
+    return Array.from(grupos.values());
+  }
+
+  /** Sugiere matchings entre nombres de Excel y proyectos existentes de una inmobiliaria. */
+  function sugerirMatchesProyectos(inmobiliariaId, nombresExcel) {
+    const existentes = window.DATA.proyectos.filter(p => p.inmobiliaria_id === inmobiliariaId);
+    const normalize = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+      .replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i').replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u');
+    return nombresExcel.map(n => {
+      const norm = normalize(n);
+      const match = existentes.find(p => normalize(p.nombre) === norm);
+      return {
+        nombreExcel: n,
+        existenteId: match ? match.id : null,
+        existenteNombre: match ? match.nombre : null
+      };
+    });
   }
 
   // ---- Normalización de valores crudos del Excel ----
@@ -1086,9 +1185,17 @@
       const n = parseFloat(cleaned);
       return isNaN(n) ? null : n;
     }
+    if (fieldDef.type === 'bool') {
+      const norm = s.toLowerCase().trim();
+      if (['si','sí','yes','true','1','x','✓'].includes(norm)) return true;
+      if (['no','false','0','-','—'].includes(norm)) return false;
+      return null;
+    }
     if (fieldDef.type === 'enum') {
-      // Normalizar a lowercase + remove spaces + match enum values
+      // Normalizar a lowercase + remove spaces + remove accents
       const norm = s.toLowerCase().replace(/\s+/g, '').replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i').replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u');
+      // Strip variant suffixes for tipologías (1d1be → 1d1b)
+      const tipNorm = norm.replace(/^(\d+d\d+b)[a-z]*$/, '$1');
       // Sinónimos comunes
       const synonyms = {
         // tipologías
@@ -1099,32 +1206,264 @@
         '3d2b': '3d2b', '3-2': '3d2b',
         '3d3b': '3d3b', '3-3': '3d3b',
         '4d3b': '4d3b', '4-3': '4d3b',
-        // estados
+        // estados (incluye typos comunes)
         'disponible': 'disponible', 'disp': 'disponible', 'available': 'disponible', 'libre': 'disponible',
         'reservada': 'reservada', 'reserva': 'reservada', 'reservado': 'reservada',
+        'rservada': 'reservada', 'rservado': 'reservada',          // typos Stitchkin
+        'reseravado': 'reservada', 'reservaado': 'reservada',
         'vendida': 'vendida', 'vendido': 'vendida', 'sold': 'vendida',
         'bloqueada': 'bloqueada', 'bloqueado': 'bloqueada', 'blocked': 'bloqueada', 'pausada': 'bloqueada',
+        // 'PILOTO' (depto modelo) → marker especial para SKIP
+        'piloto': '__skip__',
+        'modelo': '__skip__',
         // tipos
         'depto': 'departamento', 'departamento': 'departamento', 'dpto': 'departamento',
-        'local': 'local',
+        'local': 'local', 'localcomercial': 'local',
         'oficina': 'oficina', 'office': 'oficina',
         'bodega': 'bodega', 'bod': 'bodega',
-        'estacionamiento': 'estacionamiento', 'est': 'estacionamiento', 'parking': 'estacionamiento'
+        'estacionamiento': 'estacionamiento', 'est': 'estacionamiento', 'parking': 'estacionamiento',
+        // etapas
+        'enblanco': 'en_blanco', 'blanco': 'en_blanco',
+        'enverde': 'en_verde', 'verde': 'en_verde',
+        'entregainmediata': 'entrega_inmediata', 'inmediata': 'entrega_inmediata', 'inmediato': 'entrega_inmediata'
       };
+      if (synonyms[tipNorm]) return synonyms[tipNorm];
       if (synonyms[norm]) return synonyms[norm];
       if (fieldDef.enum.includes(norm)) return norm;
-      return null; // valor inválido, normalizer rechazará la fila
+      if (fieldDef.enum.includes(tipNorm)) return tipNorm;
+      return null; // valor inválido
     }
     return s; // string default
   }
 
   /**
-   * Motor de importación de Excel.
-   * @param {string} proyectoId
-   * @param {Array<object>} rows - array de objetos {ExcelHeader: value, ...}
-   * @param {object} mapping - { ExcelHeader: targetFieldKey | null }
-   * @param {object} options - { dryRun: boolean }
-   * @returns {object} resultado { creadas, actualizadas, ignoradas, errores: [...] }
+   * Motor multi-proyecto: 1 Excel por inmobiliaria con N proyectos.
+   * @param {string} inmobiliariaId
+   * @param {Array<object>} rows
+   * @param {object} mapping
+   * @param {object} proyectoActions - {[nombreExcel]: {action, existenteId, newData}}
+   *   action: 'link' | 'create' | 'skip'
+   *   existenteId: id de proyecto a vincular (action=link)
+   *   newData: {nombre, comuna, region, etapa, anio_entrega, precio_uf_min, precio_uf_max} (action=create)
+   * @param {object} options - { dryRun }
+   * @returns {object} resultado consolidado
+   */
+  function importExcelMultiProyecto(inmobiliariaId, rows, mapping, proyectoActions, options = {}) {
+    ensureArr("unidades"); ensureArr("proyectos");
+    const u = currentUser();
+    if (!u || u.role !== 'admin') throw new Error("Solo admin puede importar Excel");
+    const inm = window.DATA.inmobiliarias.find(i => i.id === inmobiliariaId);
+    if (!inm) throw new Error("Inmobiliaria no existe");
+
+    const dryRun = !!options.dryRun;
+    const start = Date.now();
+    const result = {
+      total_filas: rows.length,
+      filas_validas: 0,
+      filas_invalidas: 0,
+      filas_skipped_piloto: 0,
+      filas_proyecto_skip: 0,
+      proyectos_creados: 0,
+      proyectos_vinculados: 0,
+      proyectos_skipped: 0,
+      unidades_creadas: 0,
+      unidades_actualizadas: 0,
+      unidades_ignoradas: 0,
+      errores: [],
+      preview: [],
+      proyectos_resumen: {} // {nombreExcel: {action, proyectoId, unidades}}
+    };
+
+    const proyectoCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_nombre');
+    if (!proyectoCol) throw new Error("El mapeo no incluye 'PROYECTO · Nombre' — es requerido");
+    const proyectoHeader = proyectoCol[0];
+
+    // Validar required fields del unit-scope
+    const requiredUnit = EXCEL_FIELDS_UNIDAD.filter(f => f.required).map(f => f.key);
+    const usedTargets = Object.values(mapping);
+    const missingRequired = requiredUnit.filter(k =>
+      !usedTargets.includes(k) && !(k === 'external_id' && usedTargets.includes('numero'))
+    );
+    if (missingRequired.length > 0) {
+      throw new Error("Faltan campos requeridos en el mapeo: " + missingRequired.join(", "));
+    }
+
+    // Cache de IDs de proyecto resueltos por nombre Excel
+    const proyectosResueltos = {};   // nombreExcel → proyectoId (null si skip)
+
+    for (const [nombreExcel, action] of Object.entries(proyectoActions)) {
+      if (!action || action.action === 'skip') {
+        proyectosResueltos[nombreExcel] = null;
+        result.proyectos_skipped++;
+        result.proyectos_resumen[nombreExcel] = { action: 'skip', proyectoId: null, unidades: 0 };
+      } else if (action.action === 'link') {
+        if (!action.existenteId) throw new Error(`Acción 'link' requiere existenteId para "${nombreExcel}"`);
+        proyectosResueltos[nombreExcel] = action.existenteId;
+        result.proyectos_vinculados++;
+        result.proyectos_resumen[nombreExcel] = { action: 'link', proyectoId: action.existenteId, unidades: 0 };
+      } else if (action.action === 'create') {
+        if (dryRun) {
+          // En dryRun no creamos pero simulamos un ID temporal
+          proyectosResueltos[nombreExcel] = '__pending__';
+          result.proyectos_resumen[nombreExcel] = { action: 'create-pending', proyectoId: null, unidades: 0, newData: action.newData };
+        } else {
+          const nd = action.newData || {};
+          if (!nd.nombre || !nd.comuna) throw new Error(`Faltan datos para crear "${nombreExcel}": nombre y comuna requeridos`);
+          const created = addProyecto({
+            inmobiliaria_id: inmobiliariaId,
+            nombre: nd.nombre,
+            slug: nd.slug || slugify(nd.nombre + "-" + uid("p").slice(2)),
+            region: nd.region || "Metropolitana",
+            comuna: nd.comuna,
+            direccion: nd.direccion || "",
+            etapa: nd.etapa || "en_verde",
+            anio_entrega: nd.anio_entrega || new Date().getFullYear() + 1,
+            precio_uf_min: nd.precio_uf_min || 100,
+            precio_uf_max: nd.precio_uf_max || 999,
+            tipologias_disponibles: [],
+            estado_negocio: "activo",
+            estado_ingesta: "ok"
+          });
+          proyectosResueltos[nombreExcel] = created.id;
+          result.proyectos_creados++;
+          result.proyectos_resumen[nombreExcel] = { action: 'create', proyectoId: created.id, unidades: 0 };
+        }
+      }
+    }
+
+    // Procesar filas
+    rows.forEach((row, idx) => {
+      try {
+        const nombreProyecto = String(row[proyectoHeader] || '').trim();
+        if (!nombreProyecto) {
+          result.unidades_ignoradas++;
+          return;
+        }
+        const proyectoId = proyectosResueltos[nombreProyecto];
+        if (proyectoId === undefined) {
+          // Proyecto no en proyectoActions — saltar
+          result.filas_proyecto_skip++;
+          return;
+        }
+        if (proyectoId === null) {
+          // Proyecto explícitamente skipped
+          result.filas_proyecto_skip++;
+          return;
+        }
+
+        // Aplicar mapping de campos de unidad
+        const unidadData = {};
+        let skipRow = false;
+        for (const [excelHeader, targetKey] of Object.entries(mapping)) {
+          if (!targetKey || targetKey === '_ignore') continue;
+          const fieldDef = getExcelFieldByKey(targetKey);
+          if (!fieldDef) continue;
+          // Solo procesar campos unit-scope aquí
+          if (fieldDef.scope === 'proyecto') continue;
+
+          const raw = row[excelHeader];
+          const normalized = normalizeCellValue(raw, fieldDef);
+
+          // PILOTO marker: skip silently
+          if (normalized === '__skip__') {
+            skipRow = true;
+            break;
+          }
+
+          if (normalized !== null && normalized !== undefined) {
+            unidadData[targetKey] = normalized;
+          } else if (fieldDef.default !== undefined) {
+            unidadData[targetKey] = fieldDef.default;
+          }
+        }
+
+        if (skipRow) {
+          result.filas_skipped_piloto++;
+          return;
+        }
+
+        // Saltar filas sin numero
+        if (!unidadData.numero || String(unidadData.numero).trim() === '') {
+          result.unidades_ignoradas++;
+          return;
+        }
+
+        if (!unidadData.external_id) unidadData.external_id = String(unidadData.numero).trim();
+        unidadData.proyecto_id = proyectoId;
+
+        // Validar
+        const errors = validateUnidad(unidadData);
+        if (errors.length > 0) {
+          result.filas_invalidas++;
+          result.errores.push({
+            fila: idx + 2, // +1 row 1-indexed, +1 por header
+            proyecto: nombreProyecto,
+            numero: unidadData.numero || '?',
+            errores: errors
+          });
+          if (result.preview.length < 8) result.preview.push({ ...unidadData, __proyecto: nombreProyecto, __error: errors.join('; ') });
+          return;
+        }
+
+        result.filas_validas++;
+        if (result.proyectos_resumen[nombreProyecto]) result.proyectos_resumen[nombreProyecto].unidades++;
+        if (result.preview.length < 8) result.preview.push({ ...unidadData, __proyecto: nombreProyecto });
+
+        if (dryRun) return;
+        if (proyectoId === '__pending__') return; // En dry-run no debería pasar pero por seguridad
+
+        // Upsert por (proyecto_id, external_id)
+        const existing = window.DATA.unidades.find(
+          un => un.proyecto_id === proyectoId && un.external_id === unidadData.external_id
+        );
+        if (existing) {
+          updateUnidad(existing.id, unidadData);
+          result.unidades_actualizadas++;
+        } else {
+          addUnidad(unidadData);
+          result.unidades_creadas++;
+        }
+      } catch (e) {
+        result.filas_invalidas++;
+        result.errores.push({
+          fila: idx + 2,
+          numero: row.numero || '?',
+          errores: [e.message]
+        });
+      }
+    });
+
+    result.duracion_ms = Date.now() - start;
+
+    if (!dryRun) {
+      // Recompute estado_negocio de cada proyecto afectado
+      const affectedProyectos = new Set(Object.values(proyectosResueltos).filter(id => id && id !== '__pending__'));
+      affectedProyectos.forEach(pid => recomputeProyectoEstado(pid));
+
+      addAuditEntry({
+        adapter: 'excel-upload-multi',
+        modo: 'manual',
+        inmobiliaria_id: inmobiliariaId,
+        proyectos_recibidos: Object.keys(proyectoActions).length,
+        proyectos_creados: result.proyectos_creados,
+        proyectos_actualizados: result.proyectos_vinculados,
+        proyectos_invalidados: result.proyectos_skipped,
+        unidades_recibidas: rows.length,
+        unidades_creadas: result.unidades_creadas,
+        unidades_actualizadas: result.unidades_actualizadas,
+        unidades_ignoradas: result.unidades_ignoradas + result.filas_skipped_piloto + result.filas_proyecto_skip,
+        errores: result.errores.map(e => ({ external_id: e.numero, msg: `[${e.proyecto || '?'}] ` + e.errores.join('; ') })),
+        status: result.filas_invalidas > 0 ? 'partial' : 'success',
+        duracion_ms: result.duracion_ms
+      });
+      persist();
+    }
+    return result;
+  }
+
+  /**
+   * Motor de importación legacy (single-proyecto). Mantengo por backwards-compat
+   * pero el flujo principal ahora es importExcelMultiProyecto.
    */
   function importExcelUnidades(proyectoId, rows, mapping, options = {}) {
     ensureArr("unidades");
@@ -1752,9 +2091,11 @@
     archivosByProyecto, archivoById,
     TIPOS_ARCHIVO_PROYECTO, TIPOS_ARCHIVO_LABELS, ARCHIVO_PROYECTO_MAX_BYTES,
     // Excel import
-    EXCEL_FIELDS_UNIDAD, getExcelFieldsUnidad, getExcelFieldByKey,
-    getMapeoForInmobiliaria, saveMapeoForInmobiliaria, deleteMapeoForInmobiliaria,
-    normalizeCellValue, importExcelUnidades,
+    EXCEL_FIELDS_PROYECTO, EXCEL_FIELDS_UNIDAD, EXCEL_FIELDS_ALL,
+    getExcelFieldsProyecto, getExcelFieldsUnidad, getExcelFieldsAll, getExcelFieldByKey,
+    getMapeoForInmobiliaria, getMapeoForInmobiliariaSheet, saveMapeoForInmobiliaria, deleteMapeoForInmobiliaria,
+    detectarProyectosExcel, sugerirMatchesProyectos,
+    normalizeCellValue, importExcelUnidades, importExcelMultiProyecto,
     addProyecto, updateProyecto, deleteProyecto,
     addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
     setCondicionesProyecto,

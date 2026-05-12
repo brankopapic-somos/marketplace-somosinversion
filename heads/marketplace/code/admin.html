@@ -341,6 +341,7 @@ function inmobiliarias() {
                 <td>${i.activa ? '<span class="badge badge-green">Sí</span>' : '<span class="badge badge-gray">No</span>'}</td>
                 <td><strong>${count}</strong></td>
                 <td class="row-actions">
+                  <button class="btn btn-primary btn-sm" data-excel-i="${i.id}" title="Importar stock desde Excel (multi-proyecto)">📊 Importar stock</button>
                   <button class="btn btn-ghost btn-sm" data-edit-i="${i.id}">Editar</button>
                   <button class="btn btn-danger btn-sm" data-del-i="${i.id}" title="${count > 0 ? 'Eliminar borra ' + count + ' proyecto(s)' : ''}">×</button>
                 </td>
@@ -352,6 +353,7 @@ function inmobiliarias() {
     </div>
   `;
   document.getElementById('btn-add-inmob').addEventListener('click', () => inmobiliariaForm(null));
+  document.querySelectorAll('[data-excel-i]').forEach(b => b.addEventListener('click', () => modalImportarExcelInmobiliaria(b.dataset.excelI)));
   document.querySelectorAll('[data-edit-i]').forEach(b => b.addEventListener('click', () => inmobiliariaForm(b.dataset.editI)));
   document.querySelectorAll('[data-del-i]').forEach(b => b.addEventListener('click', () => {
     const inm = D.inmobiliarias.find(x => x.id === b.dataset.delI);
@@ -458,7 +460,6 @@ function proyectos() {
                 <td>${stateBadge(p.estado_ingesta, 'ingesta')}</td>
                 <td>${unidCount}</td>
                 <td class="row-actions">
-                  <button class="btn btn-ghost btn-sm" data-excel="${p.id}" title="Importar unidades desde Excel">📊 Excel</button>
                   <button class="btn btn-ghost btn-sm" data-archivos="${p.id}" title="Gestionar archivos del proyecto">📎 Archivos${(() => { const n = window.Marketplace.archivosByProyecto(p.id).length; return n > 0 ? ` (${n})` : ''; })()}</button>
                   <button class="btn btn-ghost btn-sm" data-edit="${p.id}">Editar</button>
                   <button class="btn btn-danger btn-sm" data-del="${p.id}">×</button>
@@ -471,7 +472,6 @@ function proyectos() {
     </div>
   `;
   document.getElementById('btn-add-proyecto').addEventListener('click', () => proyectoForm(null));
-  document.querySelectorAll('[data-excel]').forEach(b => b.addEventListener('click', () => modalImportarExcelProyecto(b.dataset.excel)));
   document.querySelectorAll('[data-archivos]').forEach(b => b.addEventListener('click', () => modalArchivosProyecto(b.dataset.archivos)));
   document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => proyectoForm(b.dataset.edit)));
   document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
@@ -484,7 +484,615 @@ function proyectos() {
 }
 
 // =============================================================================
-// IMPORTAR EXCEL — Wizard de 4 pasos para subir stock desde Excel/CSV
+// IMPORTAR EXCEL MULTI-PROYECTO — Wizard 5 pasos, entry por INMOBILIARIA
+// Soporta: multi-sheet, multi-proyecto, resolución de proyectos con autorización
+// =============================================================================
+async function modalImportarExcelInmobiliaria(inmobiliariaId) {
+  if (!window.XLSX) { toast('SheetJS no cargó. Recargá la página.', 'error'); return; }
+  const inm = window.DATA.inmobiliarias.find(i => i.id === inmobiliariaId);
+  if (!inm) { toast('Inmobiliaria no existe', 'error'); return; }
+  const M = window.Marketplace;
+
+  const state = {
+    step: 1,
+    file: null,
+    workbook: null,
+    sheets: [],            // [{ name, hidden, rowsCount }]
+    selectedSheet: null,
+    workbookRows: null,
+    headers: [], headerRow: 1,
+    mapping: {},
+    saveMapping: true,
+    proyectosDetectados: [],   // [{ nombreExcel, count, comunaSugerida, etapaSugerida, existenteId, action, newData }]
+    dataRows: null,
+    dryRunResult: null
+  };
+
+  const modal = showModal('<div id="wiz-body" style="min-height:240px;">Cargando…</div>');
+  modal.querySelector('.modal').style.maxWidth = '960px';
+
+  function close() { modal.remove(); inmobiliarias(); }
+  function renderStep() {
+    const body = modal.querySelector('#wiz-body');
+    if (state.step === 1) renderStep1Upload(body);
+    else if (state.step === 2) renderStep2Mapping(body);
+    else if (state.step === 3) renderStep3Proyectos(body);
+    else if (state.step === 4) renderStep4Preview(body);
+    else if (state.step === 5) renderStep5Import(body);
+  }
+
+  function stepBadge(n, label, current) {
+    const isCurrent = current === n;
+    const isPast = current > n;
+    const bg = isCurrent ? 'rgba(46,204,113,0.10)' : (isPast ? '#f1f5f9' : '#f1f5f9');
+    const border = isCurrent ? '1px solid rgba(46,204,113,0.3)' : 'none';
+    const color = isCurrent ? 'var(--brand-accent-strong)' : (isPast ? '#94a3b8' : '#94a3b8');
+    const tag = isPast ? `✓ PASO ${n}` : (isCurrent ? `PASO ${n} · ACTUAL` : `PASO ${n}`);
+    return `<div style="flex:1;background:${bg};border:${border};border-radius:8px;padding:10px 14px;color:${color};font-size:11px;"><div style="font-weight:600;">${tag}</div><div>${label}</div></div>`;
+  }
+  function stepsHeader(current) {
+    return `<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+      ${stepBadge(1, 'Upload', current)}
+      ${stepBadge(2, 'Mapear', current)}
+      ${stepBadge(3, 'Proyectos', current)}
+      ${stepBadge(4, 'Preview', current)}
+      ${stepBadge(5, 'Importar', current)}
+    </div>`;
+  }
+
+  function renderStep1Upload(body) {
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Importar stock desde Excel</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">
+        Inmobiliaria: <strong>${inm.nombre_publico}</strong>. El archivo puede contener <strong>múltiples proyectos</strong>.
+      </p>
+      ${stepsHeader(1)}
+
+      <div class="field">
+        <label>Archivo Excel o CSV *</label>
+        <input type="file" id="wiz-file" accept=".xlsx,.xls,.xlsm,.csv,.ods" style="margin-top:6px;width:100%;padding:14px;border:2px dashed #cbd5e1;border-radius:8px;background:#f9fafb;cursor:pointer;">
+      </div>
+      <div id="wiz-file-info" style="display:none;margin-top:8px;padding:10px 14px;background:#f1f5f9;border-radius:6px;font-size:13px;"></div>
+
+      <div id="wiz-sheet-selector" style="display:none;margin-top:14px;">
+        <label style="font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Hoja a procesar</label>
+        <div id="wiz-sheet-list" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="wiz-next" disabled>Continuar →</button>
+      </div>
+    `;
+    body.querySelector('#wiz-cancel').addEventListener('click', close);
+
+    const fileInput = body.querySelector('#wiz-file');
+    const fileInfo = body.querySelector('#wiz-file-info');
+    const sheetSelector = body.querySelector('#wiz-sheet-selector');
+    const sheetList = body.querySelector('#wiz-sheet-list');
+    const nextBtn = body.querySelector('#wiz-next');
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      state.file = file;
+      fileInfo.style.display = 'block';
+      fileInfo.innerHTML = `📊 <strong>${file.name}</strong> · ${(file.size/1024).toFixed(0)} KB · leyendo…`;
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, { type: 'array', cellDates: false });
+            state.workbook = wb;
+            // Sheets info — detectar visibility
+            state.sheets = wb.SheetNames.map(name => {
+              const sheetMeta = (wb.Workbook && wb.Workbook.Sheets) ? wb.Workbook.Sheets.find(s => s.name === name) : null;
+              const hidden = sheetMeta && (sheetMeta.Hidden === 1 || sheetMeta.Hidden === 2);
+              const sheet = wb.Sheets[name];
+              const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+              const rowsCount = range.e.r + 1;
+              return { name, hidden, rowsCount };
+            });
+            const visibles = state.sheets.filter(s => !s.hidden);
+            fileInfo.innerHTML = `📊 <strong>${file.name}</strong> · ${state.sheets.length} hoja${state.sheets.length !== 1 ? 's' : ''} (${visibles.length} visible${visibles.length !== 1 ? 's' : ''})`;
+
+            // Sheet selector
+            if (visibles.length > 1) {
+              sheetSelector.style.display = 'block';
+              sheetList.innerHTML = visibles.map((s, i) => `
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border:2px solid ${i === 0 ? 'var(--brand-accent)' : '#e2e8f0'};border-radius:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;" data-sheet-card="${s.name}">
+                  <input type="radio" name="sheet" value="${s.name}" ${i === 0 ? 'checked' : ''}>
+                  <div style="flex:1;">
+                    <div style="font-weight:600;font-size:14px;color:#0a0e1a;">${s.name}</div>
+                    <div style="font-size:11px;color:#6b7280;">${s.rowsCount} filas</div>
+                  </div>
+                </label>
+              `).join('');
+              state.selectedSheet = visibles[0].name;
+              sheetList.querySelectorAll('input[type=radio]').forEach(r => {
+                r.addEventListener('change', () => {
+                  state.selectedSheet = r.value;
+                  sheetList.querySelectorAll('[data-sheet-card]').forEach(c => {
+                    c.style.borderColor = c.querySelector('input').checked ? 'var(--brand-accent)' : '#e2e8f0';
+                  });
+                });
+              });
+            } else {
+              state.selectedSheet = visibles[0] ? visibles[0].name : state.sheets[0].name;
+            }
+            nextBtn.disabled = false;
+          } catch (err) {
+            fileInfo.innerHTML = '<span style="color:#dc2626;">❌ Error leyendo archivo: ' + err.message + '</span>';
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        toast('Error: ' + err.message, 'error');
+      }
+    });
+
+    nextBtn.addEventListener('click', () => {
+      // Parsear sheet seleccionado y auto-detectar header_row
+      const sheet = state.workbook.Sheets[state.selectedSheet];
+      const arr = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      state.workbookRows = arr;
+      // Auto-detectar header row
+      let detected = 0;
+      for (let i = 0; i < Math.min(arr.length, 10); i++) {
+        const stringCount = (arr[i] || []).filter(c => typeof c === 'string' && String(c).trim() !== '').length;
+        if (stringCount >= 3) { detected = i; break; }
+      }
+      state.headerRow = detected + 1;
+      state.headers = (arr[detected] || []).map(h => String(h).trim()).filter(h => h !== '');
+      // Pre-aplicar mapeo guardado si existe
+      const saved = M.getMapeoForInmobiliariaSheet(inmobiliariaId, state.selectedSheet);
+      if (saved) {
+        state.mapping = { ...saved.columnas };
+        state.headerRow = saved.header_row || state.headerRow;
+      }
+      state.step = 2; renderStep();
+    });
+  }
+
+  function renderStep2Mapping(body) {
+    const fields = M.EXCEL_FIELDS_ALL;
+    const requiredKeys = fields.filter(f => f.required).map(f => f.key);
+
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Mapeo de columnas</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">
+        Hoja: <strong>${state.selectedSheet}</strong>. Asigná cada columna de tu Excel a un campo del marketplace. Los marcados con * son obligatorios.
+      </p>
+      ${stepsHeader(2)}
+
+      <div style="display:flex;gap:14px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <label style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Fila de headers</label>
+          <input type="number" id="wiz-header-row" value="${state.headerRow}" min="1" max="20" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin-top:4px;">
+        </div>
+        <div style="font-size:11px;color:#6b7280;flex:2;">
+          Stitchkin tiene headers en fila 3, Ingevec en fila 1. Si la detección automática falló, ajustá acá.
+        </div>
+      </div>
+
+      <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:14px;max-height:380px;overflow-y:auto;">
+        <table style="width:100%;font-size:13px;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="text-align:left;padding:8px;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Columna en Excel</th>
+              <th style="text-align:left;padding:8px;font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Mapear a campo del marketplace</th>
+            </tr>
+          </thead>
+          <tbody id="mapping-rows"></tbody>
+        </table>
+      </div>
+
+      <div id="mapping-validation" style="margin-top:10px;"></div>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="wiz-save-mapping" ${state.saveMapping ? 'checked' : ''}>
+        <label for="wiz-save-mapping" style="font-size:13px;color:#374151;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;">
+          Guardar este mapeo para <strong>${inm.nombre_publico}</strong> / hoja "<em>${state.selectedSheet}</em>" (se aplicará automáticamente en futuros uploads)
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-back">← Atrás</button>
+        <button type="button" class="btn btn-primary" id="wiz-next">Detectar proyectos →</button>
+      </div>
+    `;
+
+    function renderMappingRows() {
+      const tbody = body.querySelector('#mapping-rows');
+      const headerIdx = (Number(body.querySelector('#wiz-header-row').value) || 1) - 1;
+      state.headerRow = headerIdx + 1;
+      state.headers = (state.workbookRows[headerIdx] || []).map(h => String(h || '').trim()).filter(h => h !== '');
+      tbody.innerHTML = state.headers.map(h => {
+        const current = state.mapping[h] || '';
+        const fieldsProj = fields.filter(f => f.scope === 'proyecto');
+        const fieldsUnit = fields.filter(f => f.scope === 'unidad');
+        return `
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:8px;"><code style="font-size:12px;">${h}</code></td>
+            <td style="padding:8px;">
+              <select data-excel-col="${h.replace(/"/g, '&quot;')}" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                <option value="">— Ignorar —</option>
+                <optgroup label="Datos del PROYECTO">
+                  ${fieldsProj.map(f => `<option value="${f.key}" ${current === f.key ? 'selected' : ''}>${f.label}${f.required ? ' *' : ''}</option>`).join('')}
+                </optgroup>
+                <optgroup label="Datos de UNIDAD">
+                  ${fieldsUnit.map(f => `<option value="${f.key}" ${current === f.key ? 'selected' : ''}>${f.label}${f.required ? ' *' : ''}</option>`).join('')}
+                </optgroup>
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join('');
+      tbody.querySelectorAll('select[data-excel-col]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const col = sel.dataset.excelCol;
+          if (sel.value) state.mapping[col] = sel.value;
+          else delete state.mapping[col];
+          validate();
+        });
+      });
+    }
+
+    function validate() {
+      const used = Object.values(state.mapping);
+      const missing = requiredKeys.filter(k =>
+        !used.includes(k) && !(k === 'external_id' && used.includes('numero'))
+      );
+      const valBox = body.querySelector('#mapping-validation');
+      const nextBtn = body.querySelector('#wiz-next');
+      if (missing.length > 0) {
+        const labels = missing.map(k => fields.find(f => f.key === k).label).join(', ');
+        valBox.innerHTML = `<div class="alert alert-warning" style="font-size:12px;padding:8px 12px;">⚠ Faltan campos requeridos: ${labels}</div>`;
+        nextBtn.disabled = true;
+      } else {
+        valBox.innerHTML = '';
+        nextBtn.disabled = false;
+      }
+    }
+
+    renderMappingRows();
+    validate();
+
+    body.querySelector('#wiz-header-row').addEventListener('input', () => { renderMappingRows(); validate(); });
+    body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 1; renderStep(); });
+    body.querySelector('#wiz-save-mapping').addEventListener('change', e => { state.saveMapping = e.target.checked; });
+    body.querySelector('#wiz-next').addEventListener('click', () => {
+      // Pre-calcular dataRows y proyectos detectados
+      const headerIdx = state.headerRow - 1;
+      const rawRows = state.workbookRows.slice(headerIdx + 1);
+      state.dataRows = rawRows.map(row => {
+        const obj = {};
+        state.headers.forEach((h, i) => { obj[h] = row[i]; });
+        return obj;
+      }).filter(row => Object.values(row).some(v => v !== '' && v !== null && v !== undefined));
+
+      try {
+        const detectados = M.detectarProyectosExcel(state.dataRows, state.mapping);
+        const matches = M.sugerirMatchesProyectos(inmobiliariaId, detectados.map(d => d.nombreExcel));
+        state.proyectosDetectados = detectados.map(d => {
+          const match = matches.find(m => m.nombreExcel === d.nombreExcel);
+          return {
+            ...d,
+            existenteId: match.existenteId,
+            existenteNombre: match.existenteNombre,
+            action: match.existenteId ? 'link' : 'create-pending',
+            newData: {
+              nombre: d.nombreExcel,
+              comuna: d.comunaSugerida || '',
+              region: 'Metropolitana',
+              etapa: d.etapaSugerida || 'en_verde',
+              anio_entrega: new Date().getFullYear() + 1,
+              precio_uf_min: 100,
+              precio_uf_max: 999
+            }
+          };
+        });
+        state.step = 3; renderStep();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  }
+
+  function renderStep3Proyectos(body) {
+    const nuevos = state.proyectosDetectados.filter(p => !p.existenteId);
+    const existentes = state.proyectosDetectados.filter(p => p.existenteId);
+
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Resolución de proyectos</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">
+        Detectamos <strong>${state.proyectosDetectados.length}</strong> proyectos en el Excel:
+        <strong>${existentes.length}</strong> coinciden con proyectos existentes,
+        <strong>${nuevos.length}</strong> son nuevos y requieren tu <strong>autorización para crearlos</strong>.
+      </p>
+      ${stepsHeader(3)}
+
+      ${nuevos.length > 0 ? `
+        <div class="alert alert-warning" style="margin-bottom:14px;">
+          ⚠ <strong>${nuevos.length} proyecto(s) nuevo(s)</strong> detectados. Decidí qué hacer con cada uno:
+        </div>
+      ` : ''}
+
+      <div id="proyectos-list" style="display:flex;flex-direction:column;gap:10px;max-height:400px;overflow-y:auto;"></div>
+
+      <div id="proyectos-summary" style="margin-top:14px;padding:10px 14px;background:#f1f5f9;border-radius:6px;font-size:12px;color:#475569;"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-back">← Volver al mapeo</button>
+        <button type="button" class="btn btn-primary" id="wiz-next">Ver preview →</button>
+      </div>
+    `;
+
+    function renderList() {
+      const lista = body.querySelector('#proyectos-list');
+      const proyectosExistentes = window.DATA.proyectos.filter(p => p.inmobiliaria_id === inmobiliariaId);
+      lista.innerHTML = state.proyectosDetectados.map((p, i) => {
+        const isNew = !p.existenteId;
+        const cardBorder = p.action === 'skip' ? '#94a3b8' : (p.action === 'create' ? 'var(--brand-secondary)' : 'var(--brand-accent)');
+        const cardBg = p.action === 'skip' ? '#f1f5f9' : (p.action === 'create' ? '#fffbeb' : 'rgba(46,204,113,0.04)');
+        const badge = p.action === 'skip' ? '<span class="badge badge-gray">SALTAR</span>'
+          : p.action === 'create' ? '<span class="badge badge-amber">CREAR NUEVO</span>'
+          : p.action === 'create-pending' ? '<span class="badge badge-red">REQUIERE AUTORIZACIÓN</span>'
+          : '<span class="badge badge-green">VINCULAR</span>';
+        return `
+          <div data-pidx="${i}" style="background:${cardBg};border:2px solid ${cardBorder};border-radius:10px;padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;">
+              <div style="flex:1;">
+                <div style="font-weight:700;font-size:15px;color:#0a0e1a;">${p.nombreExcel}</div>
+                <div style="font-size:12px;color:#6b7280;margin-top:2px;">
+                  ${p.count} unidad${p.count !== 1 ? 'es' : ''} en el Excel
+                  ${p.comunaSugerida ? `· comuna detectada: <strong>${p.comunaSugerida}</strong>` : ''}
+                  ${p.etapaSugerida ? `· etapa: <strong>${p.etapaSugerida}</strong>` : ''}
+                </div>
+                ${p.existenteNombre ? `<div style="font-size:12px;color:var(--brand-accent-strong);margin-top:4px;">✓ Match con proyecto existente: <strong>${p.existenteNombre}</strong></div>` : ''}
+              </div>
+              <div>${badge}</div>
+            </div>
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${isNew ? `
+                <button data-action="create" data-pidx="${i}" class="btn ${p.action === 'create' ? 'btn-primary' : 'btn-ghost'} btn-sm">Crear proyecto</button>
+                <button data-action="link" data-pidx="${i}" class="btn ${p.action === 'link' ? 'btn-primary' : 'btn-ghost'} btn-sm">Vincular a existente…</button>
+                <button data-action="skip" data-pidx="${i}" class="btn ${p.action === 'skip' ? 'btn-primary' : 'btn-ghost'} btn-sm">Saltar</button>
+              ` : `
+                <button data-action="link" data-pidx="${i}" class="btn ${p.action === 'link' ? 'btn-primary' : 'btn-ghost'} btn-sm">Vincular a existente</button>
+                <button data-action="create" data-pidx="${i}" class="btn ${p.action === 'create' ? 'btn-primary' : 'btn-ghost'} btn-sm">Crear nuevo (otra inmobiliaria)</button>
+                <button data-action="skip" data-pidx="${i}" class="btn ${p.action === 'skip' ? 'btn-primary' : 'btn-ghost'} btn-sm">Saltar</button>
+              `}
+            </div>
+
+            ${p.action === 'create' ? `
+              <div style="margin-top:12px;padding:12px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:8px;">Datos para crear el proyecto</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
+                  <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Nombre *</label><input data-newdata="${i}.nombre" value="${p.newData.nombre}" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+                  <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Comuna *</label><input data-newdata="${i}.comuna" value="${p.newData.comuna}" placeholder="Las Condes, Ñuñoa..." style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+                  <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Región</label><input data-newdata="${i}.region" value="${p.newData.region}" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+                  <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Etapa</label>
+                    <select data-newdata="${i}.etapa" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+                      <option value="en_blanco" ${p.newData.etapa === 'en_blanco' ? 'selected' : ''}>En blanco</option>
+                      <option value="en_verde" ${p.newData.etapa === 'en_verde' ? 'selected' : ''}>En verde</option>
+                      <option value="entrega_inmediata" ${p.newData.etapa === 'entrega_inmediata' ? 'selected' : ''}>Entrega inmediata</option>
+                    </select></div>
+                  <div><label style="display:block;color:#475569;font-weight:600;margin-bottom:2px;">Año entrega</label><input type="number" data-newdata="${i}.anio_entrega" value="${p.newData.anio_entrega}" min="2020" max="2050" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+                </div>
+              </div>
+            ` : ''}
+
+            ${p.action === 'link' ? `
+              <div style="margin-top:10px;">
+                <select data-link-pidx="${i}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                  <option value="">— Seleccionar proyecto existente —</option>
+                  ${proyectosExistentes.map(ex => `<option value="${ex.id}" ${p.existenteId === ex.id ? 'selected' : ''}>${ex.nombre} (${ex.comuna})</option>`).join('')}
+                </select>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      // Listeners
+      lista.querySelectorAll('button[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.pidx);
+          state.proyectosDetectados[idx].action = btn.dataset.action;
+          renderList(); updateSummary();
+        });
+      });
+      lista.querySelectorAll('input[data-newdata], select[data-newdata]').forEach(el => {
+        el.addEventListener('input', () => {
+          const [idx, field] = el.dataset.newdata.split('.');
+          state.proyectosDetectados[Number(idx)].newData[field] = el.value;
+          updateSummary();
+        });
+      });
+      lista.querySelectorAll('select[data-link-pidx]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const idx = Number(sel.dataset.linkPidx);
+          state.proyectosDetectados[idx].existenteId = sel.value || null;
+          updateSummary();
+        });
+      });
+    }
+
+    function updateSummary() {
+      const summary = body.querySelector('#proyectos-summary');
+      const nextBtn = body.querySelector('#wiz-next');
+      let nCreate = 0, nLink = 0, nSkip = 0, nPending = 0;
+      for (const p of state.proyectosDetectados) {
+        if (p.action === 'create') nCreate++;
+        else if (p.action === 'link') {
+          if (p.existenteId) nLink++;
+          else nPending++;
+        }
+        else if (p.action === 'skip') nSkip++;
+        else nPending++;
+      }
+      summary.innerHTML = `Crear: <strong>${nCreate}</strong> · Vincular: <strong>${nLink}</strong> · Saltar: <strong>${nSkip}</strong>${nPending > 0 ? ` · <span style="color:#dc2626;">Pendientes de decisión: <strong>${nPending}</strong></span>` : ''}`;
+      nextBtn.disabled = nPending > 0;
+      if (nPending > 0) nextBtn.title = 'Hay proyectos sin decisión tomada';
+    }
+
+    renderList();
+    updateSummary();
+
+    body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 2; renderStep(); });
+    body.querySelector('#wiz-next').addEventListener('click', () => { state.step = 4; renderStep(); });
+  }
+
+  function renderStep4Preview(body) {
+    // Construir proyectoActions desde state.proyectosDetectados
+    const proyectoActions = {};
+    for (const p of state.proyectosDetectados) {
+      if (p.action === 'skip') {
+        proyectoActions[p.nombreExcel] = { action: 'skip' };
+      } else if (p.action === 'link') {
+        proyectoActions[p.nombreExcel] = { action: 'link', existenteId: p.existenteId };
+      } else if (p.action === 'create') {
+        proyectoActions[p.nombreExcel] = { action: 'create', newData: p.newData };
+      }
+    }
+    state.proyectoActions = proyectoActions;
+
+    let result;
+    try {
+      result = M.importExcelMultiProyecto(inmobiliariaId, state.dataRows, state.mapping, proyectoActions, { dryRun: true });
+    } catch (err) {
+      body.innerHTML = `
+        <h2 style="margin-bottom:14px;">Preview</h2>
+        ${stepsHeader(4)}
+        <div class="alert alert-danger">❌ ${err.message}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="wiz-back">← Volver</button>
+        </div>
+      `;
+      body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 3; renderStep(); });
+      return;
+    }
+    state.dryRunResult = result;
+
+    body.innerHTML = `
+      <h2 style="margin-bottom:6px;">Preview</h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Validación previa antes de importar. Nada se guarda todavía.</p>
+      ${stepsHeader(4)}
+
+      <div class="stats-grid" style="margin-bottom:14px;">
+        <div class="stat-box"><div class="lbl">Total filas</div><div class="val">${result.total_filas}</div></div>
+        <div class="stat-box"><div class="lbl">Válidas</div><div class="val" style="color:#16a34a;">${result.filas_validas}</div></div>
+        <div class="stat-box"><div class="lbl">Inválidas</div><div class="val" style="color:#dc2626;">${result.filas_invalidas}</div></div>
+        <div class="stat-box"><div class="lbl">PILOTO/skip</div><div class="val" style="color:#94a3b8;">${result.filas_skipped_piloto + result.filas_proyecto_skip}</div></div>
+      </div>
+
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:8px;">Resumen por proyecto</h4>
+      <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:0;overflow:hidden;margin-bottom:14px;">
+        <table style="width:100%;font-size:12px;">
+          <thead><tr style="background:#f1f5f9;">
+            <th style="text-align:left;padding:8px;">Proyecto (Excel)</th>
+            <th style="text-align:left;padding:8px;">Acción</th>
+            <th style="text-align:right;padding:8px;">Unidades válidas</th>
+          </tr></thead>
+          <tbody>
+            ${Object.entries(result.proyectos_resumen).map(([nombre, info]) => {
+              const action = info.action;
+              const color = action === 'create' || action === 'create-pending' ? '#f59e0b' : action === 'link' ? 'var(--brand-accent-strong)' : '#94a3b8';
+              return `<tr style="border-top:1px solid #e2e8f0;">
+                <td style="padding:8px;font-weight:600;">${nombre}</td>
+                <td style="padding:8px;color:${color};">${action}</td>
+                <td style="padding:8px;text-align:right;font-weight:600;">${info.unidades}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      ${result.errores.length > 0 ? `
+        <details style="margin-bottom:14px;">
+          <summary style="cursor:pointer;font-size:12px;color:#dc2626;font-weight:600;">▶ Ver ${result.errores.length} errores</summary>
+          <div style="max-height:200px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:11px;">
+            ${result.errores.slice(0, 50).map(e => `<div style="margin-bottom:4px;"><code>Fila ${e.fila}</code> · ${e.proyecto || '?'} · ${e.numero}: ${e.errores.join('; ')}</div>`).join('')}
+            ${result.errores.length > 50 ? `<div style="font-style:italic;color:#991b1b;">... y ${result.errores.length - 50} más</div>` : ''}
+          </div>
+        </details>
+      ` : ''}
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="wiz-back">← Volver a proyectos</button>
+        <button type="button" class="btn btn-primary" id="wiz-confirm" ${result.filas_validas === 0 ? 'disabled' : ''}>
+          ${result.filas_validas === 0 ? 'Sin filas válidas' : `Importar ${result.filas_validas} unidades`}
+        </button>
+      </div>
+    `;
+    body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 3; renderStep(); });
+    body.querySelector('#wiz-confirm').addEventListener('click', () => { state.step = 5; renderStep(); });
+  }
+
+  function renderStep5Import(body) {
+    body.innerHTML = `${stepsHeader(5)}<div style="text-align:center;padding:40px;color:#6b7280;">⏳ Importando…</div>`;
+    setTimeout(() => {
+      try {
+        if (state.saveMapping) {
+          M.saveMapeoForInmobiliaria(inmobiliariaId, {
+            nombre: `Mapeo ${inm.nombre_publico} / ${state.selectedSheet}`,
+            sheet_name: state.selectedSheet,
+            header_row: state.headerRow,
+            columnas: state.mapping
+          });
+        }
+        const result = M.importExcelMultiProyecto(inmobiliariaId, state.dataRows, state.mapping, state.proyectoActions, { dryRun: false });
+        body.innerHTML = `
+          <h2 style="margin-bottom:6px;">Importación completada</h2>
+          ${stepsHeader(5)}
+          <div class="alert ${result.filas_invalidas > 0 ? 'alert-warning' : 'alert-success'}" style="margin-bottom:14px;">
+            ${result.filas_invalidas > 0 ? '⚠ Importación parcial' : '✓ Importación exitosa'} en ${result.duracion_ms}ms.
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-box"><div class="lbl">Proyectos creados</div><div class="val" style="color:#f59e0b;">${result.proyectos_creados}</div></div>
+            <div class="stat-box"><div class="lbl">Proyectos vinculados</div><div class="val" style="color:#16a34a;">${result.proyectos_vinculados}</div></div>
+            <div class="stat-box"><div class="lbl">Proyectos saltados</div><div class="val" style="color:#94a3b8;">${result.proyectos_skipped}</div></div>
+            <div class="stat-box"><div class="lbl">Unidades creadas</div><div class="val" style="color:#16a34a;">${result.unidades_creadas}</div></div>
+            <div class="stat-box"><div class="lbl">Unidades actualizadas</div><div class="val" style="color:#2563eb;">${result.unidades_actualizadas}</div></div>
+            <div class="stat-box"><div class="lbl">PILOTO saltados</div><div class="val" style="color:#94a3b8;">${result.filas_skipped_piloto}</div></div>
+            <div class="stat-box"><div class="lbl">Con error</div><div class="val" style="color:#dc2626;">${result.filas_invalidas}</div></div>
+          </div>
+
+          ${result.errores.length > 0 ? `
+            <details style="margin-top:18px;">
+              <summary style="cursor:pointer;font-size:12px;color:#dc2626;font-weight:600;">▶ Detalle de ${result.errores.length} errores</summary>
+              <div style="max-height:200px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:11px;">
+                ${result.errores.slice(0, 100).map(e => `<div style="margin-bottom:4px;"><code>Fila ${e.fila}</code> · ${e.proyecto || '?'} · ${e.numero}: ${e.errores.join('; ')}</div>`).join('')}
+              </div>
+            </details>
+          ` : ''}
+
+          ${state.saveMapping ? `<div style="margin-top:14px;font-size:12px;color:var(--brand-accent-strong);">✓ Mapeo guardado para ${inm.nombre_publico} / ${state.selectedSheet}. Próximos uploads del mismo formato lo aplicarán automáticamente.</div>` : ''}
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-primary" id="wiz-close">Cerrar</button>
+          </div>
+        `;
+        body.querySelector('#wiz-close').addEventListener('click', close);
+      } catch (err) {
+        body.innerHTML = `
+          <h2>Error</h2>
+          ${stepsHeader(5)}
+          <div class="alert alert-danger">${err.message}</div>
+          <div class="modal-actions"><button type="button" class="btn btn-ghost" id="wiz-back">← Volver</button></div>
+        `;
+        body.querySelector('#wiz-back').addEventListener('click', () => { state.step = 4; renderStep(); });
+      }
+    }, 80);
+  }
+
+  renderStep();
+}
+
+// =============================================================================
+// IMPORTAR EXCEL (LEGACY single-proyecto) — Wizard original, ya no se usa desde la UI
 // =============================================================================
 async function modalImportarExcelProyecto(proyectoId) {
   if (!window.XLSX) { toast('SheetJS no cargó. Recargá la página.', 'error'); return; }
