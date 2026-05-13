@@ -1196,9 +1196,12 @@
       return null;
     }
     if (fieldDef.type === 'enum') {
-      // Normalizar a lowercase + remove spaces + remove accents
-      const norm = s.toLowerCase().replace(/\s+/g, '').replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i').replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u');
-      // Strip variant suffixes for tipologías (1d1be → 1d1b)
+      // Normalizar a lowercase + remove accents + remove non-alphanumeric chars
+      // (acepta '2D+2B', '2D-2B', '2 D 2 B', '2D2B', '2d+2b', etc.)
+      const norm = s.toLowerCase()
+        .replace(/[áàä]/g, 'a').replace(/[éèë]/g, 'e').replace(/[íìï]/g, 'i').replace(/[óòö]/g, 'o').replace(/[úùü]/g, 'u')
+        .replace(/[^a-z0-9]/g, ''); // strip todo lo que no sea letra o numero
+      // Strip variant suffixes for tipologías (1d1be → 1d1b, 2d2bx → 2d2b)
       const tipNorm = norm.replace(/^(\d+d\d+b)[a-z]*$/, '$1');
       // Sinónimos comunes
       const synonyms = {
@@ -1281,6 +1284,19 @@
     const proyectoCol = Object.entries(mapping).find(([_, k]) => k === 'proyecto_nombre');
     if (!proyectoCol) throw new Error("El mapeo no incluye 'PROYECTO · Nombre' — es requerido");
     const proyectoHeader = proyectoCol[0];
+
+    // Auto-detección de columnas % en formato decimal (Excel guarda 0.19 = 19%)
+    // Para cada columna mapeada a un field _porcentaje, chequear si los valores son ≤ 1
+    // Si sí, multiplicaremos por 100 al normalizar (típico Excel chileno)
+    const decimalAsPercentColumns = new Set();
+    for (const [excelHeader, targetKey] of Object.entries(mapping)) {
+      if (!targetKey || !targetKey.includes('porcentaje')) continue;
+      const sampleValues = rows.slice(0, 50).map(r => Number(r[excelHeader])).filter(v => !isNaN(v) && v > 0);
+      if (sampleValues.length > 0 && sampleValues.every(v => v <= 1)) {
+        decimalAsPercentColumns.add(excelHeader);
+      }
+    }
+    result.decimal_as_percent_detected = Array.from(decimalAsPercentColumns);
 
     // Validar required fields del unit-scope
     const requiredUnit = EXCEL_FIELDS_UNIDAD.filter(f => f.required).map(f => f.key);
@@ -1366,7 +1382,12 @@
           // Solo procesar campos unit-scope aquí
           if (fieldDef.scope === 'proyecto') continue;
 
-          const raw = row[excelHeader];
+          let raw = row[excelHeader];
+          // Auto-conversion decimal → porcentaje si la columna fue detectada
+          if (decimalAsPercentColumns.has(excelHeader) && raw !== null && raw !== undefined && raw !== '') {
+            const n = Number(raw);
+            if (!isNaN(n) && n <= 1) raw = n * 100;
+          }
           const normalized = normalizeCellValue(raw, fieldDef);
 
           // PILOTO marker: skip silently
