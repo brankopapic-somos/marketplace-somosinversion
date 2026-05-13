@@ -814,41 +814,96 @@ function renderProyecto(slug) {
       `;
     })()}
 
-    <div class="section">
-      <h2>Unidades (${unidades.length})</h2>
+    <div class="section" id="unidades-section">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>Unidades <span id="unidades-count" style="font-size:14px;color:#6b7280;font-weight:400;"></span></span>
+      </h2>
       ${unidades.length === 0 ? '<p style="color:#6b7280">Sin unidades cargadas.</p>' : `
-        <table class="units">
+        <!-- ===== FILTROS ===== -->
+        <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:10px;padding:14px;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <strong style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#475569;">Filtros</strong>
+            <button id="u-reset-filters" class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 10px;">Limpiar</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Tipología</label>
+              <select id="u-f-tipologia" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+                <option value="">Todas</option>
+                ${[...new Set(unidades.map(u => u.tipologia).filter(Boolean))].sort().map(t => `<option value="${t}">${t}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Tipo</label>
+              <select id="u-f-tipo" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+                <option value="">Todos</option>
+                ${[...new Set(unidades.map(u => u.tipo).filter(Boolean))].sort().map(t => `<option value="${t}">${t}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Estado</label>
+              <select id="u-f-estado" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+                <option value="">Todos</option>
+                <option value="disponible" selected>Solo disponibles</option>
+                <option value="reservada">Reservadas</option>
+                <option value="vendida">Vendidas</option>
+                <option value="bloqueada">Bloqueadas</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Orientación</label>
+              <select id="u-f-orient" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+                <option value="">Todas</option>
+                ${[...new Set(unidades.map(u => u.orientacion).filter(Boolean))].sort().map(o => `<option value="${o}">${o}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Precio UF (min)</label>
+              <input type="number" id="u-f-precio-min" placeholder="ej: 3000" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Precio UF (max)</label>
+              <input type="number" id="u-f-precio-max" placeholder="ej: 6000" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Piso (min)</label>
+              <input type="number" id="u-f-piso-min" placeholder="—" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Piso (max)</label>
+              <input type="number" id="u-f-piso-max" placeholder="—" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Sup. min (m²)</label>
+              <input type="number" id="u-f-sup-min" placeholder="—" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Sup. max (m²)</label>
+              <input type="number" id="u-f-sup-max" placeholder="—" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== TABLA ===== -->
+        <table class="units" id="u-table">
           <thead>
             <tr>
-              <th>N°</th>
-              <th>Tipología</th>
-              <th>Piso</th>
-              <th>Sup. (m²)</th>
-              <th>Orient.</th>
-              <th>Precio UF</th>
-              <th>Estado</th>
+              <th data-sort="numero" style="cursor:pointer;user-select:none;">N° <span class="sort-ind" data-sort-field="numero"></span></th>
+              <th data-sort="tipologia" style="cursor:pointer;user-select:none;">Tipología <span class="sort-ind" data-sort-field="tipologia"></span></th>
+              <th data-sort="piso" style="cursor:pointer;user-select:none;">Piso <span class="sort-ind" data-sort-field="piso"></span></th>
+              <th data-sort="superficie_total" style="cursor:pointer;user-select:none;">Sup. (m²) <span class="sort-ind" data-sort-field="superficie_total"></span></th>
+              <th data-sort="orientacion" style="cursor:pointer;user-select:none;">Orient. <span class="sort-ind" data-sort-field="orientacion"></span></th>
+              <th data-sort="precio_uf" style="cursor:pointer;user-select:none;">Precio UF <span class="sort-ind" data-sort-field="precio_uf"></span></th>
+              <th data-sort="estado" style="cursor:pointer;user-select:none;">Estado <span class="sort-ind" data-sort-field="estado"></span></th>
               <th></th>
             </tr>
           </thead>
-          <tbody>
-            ${unidades.map(u => `
-              <tr>
-                <td><strong>${u.numero}</strong></td>
-                <td>${u.tipologia}</td>
-                <td>${u.piso ?? '—'}</td>
-                <td>${u.superficie_total ?? '—'}</td>
-                <td>${u.orientacion ?? '—'}</td>
-                <td class="price-cell">UF ${fmtUf(u.precio_uf)}</td>
-                <td>${unitStatusBadge(u.estado)}</td>
-                <td class="actions-cell">
-                  <button data-unidad="${u.id}" ${u.estado !== 'disponible' ? 'disabled' : ''}>
-                    ${u.estado === 'disponible' ? 'Cotizar' : '—'}
-                  </button>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
+          <tbody id="u-tbody"></tbody>
         </table>
+
+        <div id="u-empty" style="display:none;text-align:center;padding:30px;color:#9ca3af;font-size:14px;">
+          Sin unidades que coincidan con los filtros.
+        </div>
       `}
     </div>
 
@@ -861,9 +916,160 @@ function renderProyecto(slug) {
     </div>
   `;
 
-  document.querySelectorAll('[data-unidad]').forEach(btn => {
-    btn.addEventListener('click', () => { window.location.hash = `/unidad/${btn.dataset.unidad}`; });
-  });
+  // ===== FILTROS + ORDENAMIENTO DE UNIDADES =====
+  if (unidades.length > 0) {
+    let sortField = 'precio_uf';
+    let sortDir = 'asc';     // default: precio menor a mayor
+    let filters = {
+      tipologia: '',
+      tipo: '',
+      estado: 'disponible',  // default: solo disponibles
+      orientacion: '',
+      precioMin: null,
+      precioMax: null,
+      pisoMin: null,
+      pisoMax: null,
+      supMin: null,
+      supMax: null
+    };
+
+    const tbody = document.getElementById('u-tbody');
+    const countEl = document.getElementById('unidades-count');
+    const emptyEl = document.getElementById('u-empty');
+
+    const applyFiltersAndSort = () => {
+      let filtered = unidades.filter(u => {
+        if (filters.tipologia && u.tipologia !== filters.tipologia) return false;
+        if (filters.tipo && u.tipo !== filters.tipo) return false;
+        if (filters.estado && u.estado !== filters.estado) return false;
+        if (filters.orientacion && u.orientacion !== filters.orientacion) return false;
+        if (filters.precioMin !== null && (u.precio_uf || 0) < filters.precioMin) return false;
+        if (filters.precioMax !== null && (u.precio_uf || 0) > filters.precioMax) return false;
+        if (filters.pisoMin !== null && (u.piso ?? -Infinity) < filters.pisoMin) return false;
+        if (filters.pisoMax !== null && (u.piso ?? Infinity) > filters.pisoMax) return false;
+        if (filters.supMin !== null && (u.superficie_total ?? -Infinity) < filters.supMin) return false;
+        if (filters.supMax !== null && (u.superficie_total ?? Infinity) > filters.supMax) return false;
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        let va = a[sortField], vb = b[sortField];
+        // Manejo de nulls / undefined: van al final siempre
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        // String vs number
+        if (typeof va === 'string' && typeof vb === 'string') {
+          va = va.toLowerCase(); vb = vb.toLowerCase();
+          return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+        }
+        // Numeric
+        const cmp = Number(va) - Number(vb);
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+
+      // Update count
+      countEl.textContent = filtered.length === unidades.length
+        ? `(${unidades.length})`
+        : `(${filtered.length} de ${unidades.length})`;
+
+      // Update tbody
+      if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        emptyEl.style.display = 'block';
+      } else {
+        emptyEl.style.display = 'none';
+        tbody.innerHTML = filtered.map(u => `
+          <tr>
+            <td><strong>${u.numero}</strong></td>
+            <td>${u.tipologia || '—'}</td>
+            <td>${u.piso ?? '—'}</td>
+            <td>${u.superficie_total ?? '—'}</td>
+            <td>${u.orientacion ?? '—'}</td>
+            <td class="price-cell">UF ${fmtUf(u.precio_uf)}</td>
+            <td>${unitStatusBadge(u.estado)}</td>
+            <td class="actions-cell">
+              <button data-unidad="${u.id}" ${u.estado !== 'disponible' ? 'disabled' : ''}>
+                ${u.estado === 'disponible' ? 'Cotizar' : '—'}
+              </button>
+            </td>
+          </tr>
+        `).join('');
+        // Re-bind clicks
+        tbody.querySelectorAll('[data-unidad]').forEach(btn => {
+          btn.addEventListener('click', () => { window.location.hash = `/unidad/${btn.dataset.unidad}`; });
+        });
+      }
+
+      // Update sort indicators
+      document.querySelectorAll('.sort-ind').forEach(span => {
+        span.textContent = '';
+        span.style.color = '#cbd5e1';
+      });
+      const activeInd = document.querySelector(`.sort-ind[data-sort-field="${sortField}"]`);
+      if (activeInd) {
+        activeInd.textContent = sortDir === 'asc' ? '↑' : '↓';
+        activeInd.style.color = 'var(--brand-accent-strong)';
+      }
+    };
+
+    // Wire filters
+    const wireFilter = (id, key, parseNum = false) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        const v = el.value;
+        if (parseNum) {
+          const n = Number(v);
+          filters[key] = (v === '' || isNaN(n)) ? null : n;
+        } else {
+          filters[key] = v;
+        }
+        applyFiltersAndSort();
+      });
+      // Pre-seleccionar estado=disponible
+      if (key === 'estado' && filters.estado) el.value = filters.estado;
+    };
+    wireFilter('u-f-tipologia', 'tipologia');
+    wireFilter('u-f-tipo', 'tipo');
+    wireFilter('u-f-estado', 'estado');
+    wireFilter('u-f-orient', 'orientacion');
+    wireFilter('u-f-precio-min', 'precioMin', true);
+    wireFilter('u-f-precio-max', 'precioMax', true);
+    wireFilter('u-f-piso-min', 'pisoMin', true);
+    wireFilter('u-f-piso-max', 'pisoMax', true);
+    wireFilter('u-f-sup-min', 'supMin', true);
+    wireFilter('u-f-sup-max', 'supMax', true);
+
+    // Reset button
+    document.getElementById('u-reset-filters').addEventListener('click', () => {
+      filters = { tipologia:'', tipo:'', estado:'disponible', orientacion:'', precioMin:null, precioMax:null, pisoMin:null, pisoMax:null, supMin:null, supMax:null };
+      document.getElementById('u-f-tipologia').value = '';
+      document.getElementById('u-f-tipo').value = '';
+      document.getElementById('u-f-estado').value = 'disponible';
+      document.getElementById('u-f-orient').value = '';
+      ['u-f-precio-min','u-f-precio-max','u-f-piso-min','u-f-piso-max','u-f-sup-min','u-f-sup-max']
+        .forEach(id => { document.getElementById(id).value = ''; });
+      applyFiltersAndSort();
+    });
+
+    // Sort por header click
+    document.querySelectorAll('#u-table th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.dataset.sort;
+        if (field === sortField) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortField = field;
+          sortDir = 'asc';
+        }
+        applyFiltersAndSort();
+      });
+    });
+
+    // Initial render con default sort (precio asc) + filtro disponibles
+    applyFiltersAndSort();
+  }
 }
 
 function unitStatusBadge(estado) {
