@@ -1417,6 +1417,16 @@
         if (!unidadData.external_id) unidadData.external_id = String(unidadData.numero).trim();
         unidadData.proyecto_id = proyectoId;
 
+        // Auto-derivar tipologia para unidades no-departamento
+        // Caso típico: estacionamientos/bodegas no tienen columna de tipología real
+        // Si tipo es estacionamiento/bodega/local/oficina y tipologia falta o es inválida,
+        // setear tipologia = tipo (válido por estar en el enum)
+        const tipologiasValidas = ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"];
+        const tiposNoDepto = ["estacionamiento","bodega","local","oficina"];
+        if (tiposNoDepto.includes(unidadData.tipo) && !tipologiasValidas.includes(unidadData.tipologia)) {
+          unidadData.tipologia = unidadData.tipo;
+        }
+
         // Validar
         const errors = validateUnidad(unidadData);
         if (errors.length > 0) {
