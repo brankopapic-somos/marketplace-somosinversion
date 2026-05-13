@@ -35,10 +35,42 @@
 
   function persist() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(window.DATA));
+      const json = JSON.stringify(window.DATA);
+      localStorage.setItem(STORAGE_KEY, json);
     } catch (e) {
       console.error("Error persistiendo en localStorage:", e);
-      alert("Error: localStorage lleno o no disponible.");
+      const isQuota = e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota/i.test(String(e.message)));
+      if (isQuota) {
+        // Calcular tamaños para diagnóstico
+        const sizes = {};
+        let total = 0;
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            const v = localStorage.getItem(k) || '';
+            const bytes = v.length * 2; // UTF-16
+            sizes[k] = bytes;
+            total += bytes;
+          }
+        } catch (_) {}
+        const totalMb = (total / 1024 / 1024).toFixed(2);
+        let breakdown = '';
+        Object.entries(sizes).sort((a, b) => b[1] - a[1]).slice(0, 5).forEach(([k, b]) => {
+          breakdown += '\n  · ' + k + ': ' + (b / 1024 / 1024).toFixed(2) + ' MB';
+        });
+        alert(
+          'Storage del navegador lleno (~' + totalMb + ' MB usado, máx 5-10 MB).\n\n' +
+          'Top items que ocupan espacio:' + breakdown + '\n\n' +
+          'Opciones:\n' +
+          ' · Eliminar imágenes pesadas y usar URLs externas (Imgur, Drive)\n' +
+          ' · Eliminar comprobantes de transferencia antiguos\n' +
+          ' · Exportar datos (Admin → Datos), borrar localStorage, re-importar lo esencial\n' +
+          ' · Reducir tamaño de imágenes antes de subirlas (recomendado < 500 KB)\n'
+        );
+      } else {
+        alert("Error guardando en localStorage: " + (e.message || e));
+      }
+      throw e; // re-lanzar para que el caller sepa que falló
     }
   }
 
