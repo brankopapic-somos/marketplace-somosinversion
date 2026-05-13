@@ -134,6 +134,7 @@
 
   <div class="tabs" id="tabs">
     <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="notificaciones">🔔 Notificaciones <span id="notif-badge"></span></button>
     <button data-tab="inmobiliarias">Inmobiliarias</button>
     <button data-tab="proyectos">Proyectos</button>
     <button data-tab="unidades">Unidades</button>
@@ -258,7 +259,16 @@ function render() {
     });
   }
 
-  const renderers = { dashboard, inmobiliarias, proyectos, unidades, condiciones, "clientes-admin": clientesAdmin, ingesta, auditoria, datos };
+  // Actualizar badge de notificaciones
+  const noLeidas = window.Marketplace.countNotificacionesNoLeidas();
+  const badge = document.getElementById('notif-badge');
+  if (badge) {
+    badge.innerHTML = noLeidas > 0
+      ? `<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:4px;font-weight:700;">${noLeidas}</span>`
+      : '';
+  }
+
+  const renderers = { dashboard, notificaciones, inmobiliarias, proyectos, unidades, condiciones, "clientes-admin": clientesAdmin, ingesta, auditoria, datos };
   renderers[activeTab]();
 }
 
@@ -312,6 +322,286 @@ function dashboard() {
 // =============================================================================
 // INMOBILIARIAS — CRUD
 // =============================================================================
+// =============================================================================
+// NOTIFICACIONES — admin
+// =============================================================================
+const NOTIF_ICON = {
+  unidad_nueva:        '➕',
+  unidad_eliminada:    '➖',
+  unidad_modificada:   '✏️',
+  reserva_creada:      '🔒',
+  reserva_cancelada:   '🚫',
+  reserva_confirmada:  '✓',
+  reserva_escriturada: '📋'
+};
+
+const NOTIF_COLOR = {
+  unidad_nueva:        '#16a34a',
+  unidad_eliminada:    '#dc2626',
+  unidad_modificada:   '#f59e0b',
+  reserva_creada:      '#2563eb',
+  reserva_cancelada:   '#6b7280',
+  reserva_confirmada:  '#0891b2',
+  reserva_escriturada: '#16a34a'
+};
+
+function notificaciones() {
+  const filter = window._notifFilter || 'todas';
+  const tipoFilter = window._notifTipoFilter || '';
+  let lista = window.Marketplace.listNotificaciones();
+
+  if (filter === 'no-leidas') lista = lista.filter(n => !n.leida);
+  if (filter === 'leidas') lista = lista.filter(n => n.leida);
+  if (tipoFilter) lista = lista.filter(n => n.tipo === tipoFilter);
+
+  const noLeidasCount = window.Marketplace.countNotificacionesNoLeidas();
+
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <span>Notificaciones <small style="font-size:13px;color:#6b7280;font-weight:400;">(${lista.length} mostradas · ${noLeidasCount} no leída${noLeidasCount !== 1 ? 's' : ''})</small></span>
+        <div>
+          ${noLeidasCount > 0 ? '<button class="btn btn-ghost btn-sm" id="btn-mark-all">Marcar todas leídas</button>' : ''}
+          ${lista.length > 0 ? '<button class="btn btn-ghost btn-sm" id="btn-clear-all" style="color:#dc2626;">Limpiar todas</button>' : ''}
+        </div>
+      </h2>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Estado:</label>
+          <select id="notif-f-estado" style="margin-left:6px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            <option value="todas" ${filter === 'todas' ? 'selected' : ''}>Todas</option>
+            <option value="no-leidas" ${filter === 'no-leidas' ? 'selected' : ''}>No leídas</option>
+            <option value="leidas" ${filter === 'leidas' ? 'selected' : ''}>Leídas</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Tipo:</label>
+          <select id="notif-f-tipo" style="margin-left:6px;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            <option value="">Todos</option>
+            ${window.Marketplace.NOTIF_TIPOS.map(t => `<option value="${t}" ${tipoFilter === t ? 'selected' : ''}>${NOTIF_ICON[t]} ${t.replace(/_/g, ' ')}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      ${lista.length === 0 ? `
+        <div style="text-align:center;padding:40px;color:#9ca3af;">
+          <div style="font-size:48px;margin-bottom:10px;">🔔</div>
+          <div style="font-size:14px;">Sin notificaciones para mostrar.</div>
+        </div>
+      ` : `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${lista.map(n => {
+            const icon = NOTIF_ICON[n.tipo] || '🔔';
+            const color = NOTIF_COLOR[n.tipo] || '#6b7280';
+            const tiempo = new Date(n.created_at).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+            const bg = n.leida ? '#fff' : 'rgba(46, 204, 113, 0.03)';
+            const borderLeft = n.leida ? '#e2e8f0' : color;
+            return `
+              <div data-notif-id="${n.id}" style="background:${bg};border:1px solid #e2e8f0;border-left:4px solid ${borderLeft};border-radius:8px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'" onmouseout="this.style.boxShadow='none'">
+                <div style="font-size:22px;flex-shrink:0;line-height:1;">${icon}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:3px;">
+                    <strong style="font-size:13px;color:${color};">${n.titulo}</strong>
+                    <small style="font-size:11px;color:#9ca3af;">${tiempo}</small>
+                  </div>
+                  <div style="font-size:13px;color:#374151;line-height:1.5;">${n.mensaje}</div>
+                </div>
+                <div style="display:flex;gap:4px;flex-shrink:0;">
+                  <button class="btn btn-primary btn-sm" data-notif-ver="${n.id}" style="padding:4px 10px;font-size:11px;">Ver</button>
+                  ${!n.leida ? `<button class="btn btn-ghost btn-sm" data-notif-mark="${n.id}" style="padding:4px 8px;font-size:11px;">✓</button>` : ''}
+                  <button class="btn btn-ghost btn-sm" data-notif-del="${n.id}" style="padding:4px 8px;font-size:11px;color:#dc2626;">×</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+
+  // Listeners
+  document.getElementById('notif-f-estado').addEventListener('change', e => {
+    window._notifFilter = e.target.value;
+    notificaciones();
+  });
+  document.getElementById('notif-f-tipo').addEventListener('change', e => {
+    window._notifTipoFilter = e.target.value;
+    notificaciones();
+  });
+  const btnMarkAll = document.getElementById('btn-mark-all');
+  if (btnMarkAll) btnMarkAll.addEventListener('click', () => {
+    window.Marketplace.marcarTodasLeidas();
+    toast('Todas marcadas como leídas');
+    render();
+  });
+  const btnClearAll = document.getElementById('btn-clear-all');
+  if (btnClearAll) btnClearAll.addEventListener('click', () => {
+    if (confirm('¿Eliminar TODAS las notificaciones? No se puede deshacer.')) {
+      window.Marketplace.clearAllNotificaciones();
+      toast('Notificaciones eliminadas');
+      render();
+    }
+  });
+  document.querySelectorAll('[data-notif-ver]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      modalNotifDetalle(b.dataset.notifVer);
+    })
+  );
+  document.querySelectorAll('[data-notif-mark]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      window.Marketplace.marcarNotificacionLeida(b.dataset.notifMark);
+      notificaciones();
+      render();
+    })
+  );
+  document.querySelectorAll('[data-notif-del]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      window.Marketplace.deleteNotificacion(b.dataset.notifDel);
+      toast('Notificación eliminada');
+      notificaciones();
+      render();
+    })
+  );
+  document.querySelectorAll('[data-notif-id]').forEach(card =>
+    card.addEventListener('click', () => modalNotifDetalle(card.dataset.notifId))
+  );
+}
+
+function modalNotifDetalle(notifId) {
+  const n = window.Marketplace.listNotificaciones().find(x => x.id === notifId);
+  if (!n) { toast('Notificación no encontrada', 'error'); return; }
+
+  // Auto-marcar leída al abrir
+  window.Marketplace.marcarNotificacionLeida(notifId);
+
+  const icon = NOTIF_ICON[n.tipo] || '🔔';
+  const color = NOTIF_COLOR[n.tipo] || '#6b7280';
+  const meta = n.metadata || {};
+  const unit = n.unidad_id ? window.DATA.unidades.find(u => u.id === n.unidad_id) : null;
+  const proj = n.proyecto_id ? window.DATA.proyectos.find(p => p.id === n.proyecto_id) : null;
+  const reserva = n.reserva_id ? window.DATA.reservas.find(r => r.id === n.reserva_id) : null;
+  const cli = n.cliente_id ? window.DATA.clientes.find(c => c.id === n.cliente_id) : null;
+  const broker = n.broker_id ? (window.DATA.usuarios || []).find(u => u.id === n.broker_id) : null;
+
+  let cambiosHtml = '';
+  if (meta.cambios && meta.cambios.length > 0) {
+    cambiosHtml = `
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-top:14px;margin-bottom:8px;">Cambios detectados</h4>
+      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <thead><tr style="background:#f1f5f9;">
+          <th style="text-align:left;padding:6px;">Campo</th>
+          <th style="text-align:left;padding:6px;">Antes</th>
+          <th style="text-align:left;padding:6px;">Ahora</th>
+        </tr></thead>
+        <tbody>
+          ${meta.cambios.map(c => `
+            <tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:6px;font-weight:600;">${c.campo}</td>
+              <td style="padding:6px;color:#dc2626;">${c.antes === null ? '—' : c.antes}</td>
+              <td style="padding:6px;color:#16a34a;">${c.ahora === null ? '—' : c.ahora}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  let unitInfoHtml = '';
+  if (unit) {
+    unitInfoHtml = `
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-top:14px;margin-bottom:8px;">Estado actual de la unidad</h4>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:13px;line-height:1.7;">
+        <div><strong>${unit.numero}</strong> · ${unit.tipo || '—'} · ${unit.tipologia}</div>
+        <div>Precio actual: <strong>UF ${Number(unit.precio_uf).toLocaleString('es-CL')}</strong></div>
+        <div>Estado: <strong style="color:${unit.estado === 'disponible' ? '#16a34a' : unit.estado === 'vendida' ? '#6b7280' : '#f59e0b'};">${unit.estado}</strong></div>
+        ${unit.piso ? `<div>Piso: ${unit.piso}</div>` : ''}
+        ${unit.superficie_total ? `<div>Superficie: ${unit.superficie_total} m²</div>` : ''}
+        ${unit.orientacion ? `<div>Orientación: ${unit.orientacion}</div>` : ''}
+      </div>
+    `;
+  } else if (n.tipo === 'unidad_eliminada' && meta.unidad_numero) {
+    unitInfoHtml = `
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-top:14px;margin-bottom:8px;">Último estado conocido (no aparece en último Excel)</h4>
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;font-size:13px;line-height:1.7;">
+        <div><strong>${meta.unidad_numero}</strong> · ${meta.tipologia || '—'}</div>
+        ${meta.ultimo_precio_uf ? `<div>Último precio: UF ${Number(meta.ultimo_precio_uf).toLocaleString('es-CL')}</div>` : ''}
+        ${meta.ultimo_estado ? `<div>Último estado: <strong>${meta.ultimo_estado}</strong></div>` : ''}
+        <div style="margin-top:8px;font-size:11px;color:#991b1b;font-style:italic;">⚠ La unidad SIGUE en el sistema. Si confirmás que ya no se vende, eliminala manualmente desde el tab Unidades.</div>
+      </div>
+    `;
+  }
+
+  let reservaInfoHtml = '';
+  if (reserva) {
+    const colors = { pendiente:'#f59e0b', confirmada:'#2563eb', escriturada:'#16a34a', cancelada:'#6b7280' };
+    reservaInfoHtml = `
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-top:14px;margin-bottom:8px;">Reserva</h4>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:13px;line-height:1.7;">
+        <div>Referencia: <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;">${reserva.referencia}</code></div>
+        <div>Cliente: <strong>${cli ? cli.nombre : '?'}</strong>${cli && cli.email ? ` · ${cli.email}` : ''}</div>
+        <div>Broker: <strong>${broker ? broker.nombre : '?'}</strong>${broker && broker.email ? ` · ${broker.email}` : ''}</div>
+        <div>Estado: <strong style="color:${colors[reserva.estado] || '#6b7280'};">${reserva.estado}</strong></div>
+        <div>Método pago: ${reserva.metodo_pago === 'reserva_cero' ? 'Reserva 0' : 'Transferencia'}</div>
+        ${reserva.monto_reserva_clp ? `<div>Monto reserva: $ ${Number(reserva.monto_reserva_clp).toLocaleString('es-CL')}</div>` : ''}
+        ${reserva.fecha_vencimiento ? `<div>Vence: ${reserva.fecha_vencimiento}</div>` : ''}
+        ${reserva.comprobante && reserva.comprobante.dataurl ? `<div><a href="${reserva.comprobante.dataurl}" download="${reserva.comprobante.filename}" style="color:var(--brand-accent-strong);">📎 Descargar comprobante</a></div>` : ''}
+      </div>
+    `;
+  }
+
+  const html = `
+    <h2 style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:28px;">${icon}</span>
+      <span>${n.titulo}</span>
+    </h2>
+    <div style="color:#6b7280;font-size:12px;margin-bottom:14px;">${new Date(n.created_at).toLocaleString('es-CL')} · <span style="color:${color};text-transform:uppercase;font-weight:600;letter-spacing:0.5px;font-size:10px;">${n.tipo.replace(/_/g, ' ')}</span></div>
+
+    <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:14px;font-size:14px;color:#1f2937;line-height:1.5;">
+      ${n.mensaje}
+    </div>
+
+    ${proj ? `
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-top:14px;margin-bottom:8px;">Proyecto</h4>
+      <div style="font-size:13px;color:#1f2937;"><strong>${proj.nombre}</strong> · ${proj.comuna}</div>
+    ` : ''}
+
+    ${unitInfoHtml}
+    ${reservaInfoHtml}
+    ${cambiosHtml}
+
+    <div class="modal-actions" style="gap:6px;">
+      ${unit ? `<button type="button" class="btn btn-ghost" id="goto-unidad">Ver en tab Unidades</button>` : ''}
+      ${reserva && cli ? `<button type="button" class="btn btn-ghost" id="goto-cliente">Ver cliente</button>` : ''}
+      <button type="button" class="btn btn-primary" id="cancel">Cerrar</button>
+    </div>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('.modal').style.maxWidth = '720px';
+  modal.querySelector('#cancel').addEventListener('click', () => { modal.remove(); notificaciones(); });
+  const goUnidad = modal.querySelector('#goto-unidad');
+  if (goUnidad) goUnidad.addEventListener('click', () => {
+    modal.remove();
+    window._unidadFilter = n.proyecto_id;
+    activeTab = 'unidades';
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelector('#tabs button[data-tab="unidades"]').classList.add('active');
+    render();
+  });
+  const goCliente = modal.querySelector('#goto-cliente');
+  if (goCliente) goCliente.addEventListener('click', () => {
+    modal.remove();
+    activeTab = 'clientes-admin';
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelector('#tabs button[data-tab="clientes-admin"]').classList.add('active');
+    render();
+    setTimeout(() => modalDetalleCliente(n.cliente_id), 200);
+  });
+}
+
 function inmobiliarias() {
   const D = window.DATA;
   tabContent.innerHTML = `

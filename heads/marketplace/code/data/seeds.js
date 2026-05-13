@@ -335,5 +335,11 @@ window.DATA = {
   // futuros del mismo formato. Estructura por entry:
   // { id, inmobiliaria_id, nombre, header_row, columnas: {ExcelHeader: targetField}, created_at }
   // ---------------------------------------------------------------------------
-  mapeos_excel: []
+  mapeos_excel: [],
+
+  // ---------------------------------------------------------------------------
+  // Notificaciones para admin — eventos importantes del sistema
+  // (cambios en stock por ingesta, reservas creadas/canceladas, etc.)
+  // ---------------------------------------------------------------------------
+  notificaciones: []
 };

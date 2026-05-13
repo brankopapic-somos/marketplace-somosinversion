@@ -707,6 +707,29 @@
 
     window.DATA.reservas.push(reserva);
     recomputeProyectoEstado(unidad.proyecto_id); // Regla 8 modelo
+
+    // Notificación al admin: reserva creada
+    const proj = window.DATA.proyectos.find(p => p.id === unidad.proyecto_id);
+    addNotificacion({
+      tipo: 'reserva_creada',
+      titulo: 'Nueva reserva',
+      mensaje: `${cli.nombre} reservó la unidad ${unidad.numero} en ${proj ? proj.nombre : 'proyecto'} · ${metodoPago === 'reserva_cero' ? 'Reserva 0' : 'Transferencia'}`,
+      proyecto_id: unidad.proyecto_id,
+      unidad_id: unidad.id,
+      reserva_id: reserva.id,
+      cliente_id: cli.id,
+      broker_id: u.id,
+      metadata: {
+        unidad_numero: unidad.numero,
+        proyecto_nombre: proj ? proj.nombre : null,
+        cliente_nombre: cli.nombre,
+        broker_nombre: u.nombre,
+        metodo_pago: metodoPago,
+        precio_uf: unidad.precio_uf,
+        referencia: reserva.referencia
+      }
+    });
+
     persist();
     return reserva;
   }
@@ -738,6 +761,29 @@
       updated_at: nowIso()
     };
     recomputeProyectoEstado(reserva.proyecto_id);
+
+    // Notificación al admin
+    const cli = clienteById(reserva.cliente_id);
+    const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
+    const projNow = window.DATA.proyectos.find(x => x.id === reserva.proyecto_id);
+    addNotificacion({
+      tipo: 'reserva_cancelada',
+      titulo: 'Reserva cancelada',
+      mensaje: `Reserva ${reserva.referencia} de ${cli ? cli.nombre : '?'} en unidad ${unitNow ? unitNow.numero : '?'} fue cancelada${motivo ? ' · motivo: ' + motivo : ''}`,
+      proyecto_id: reserva.proyecto_id,
+      unidad_id: reserva.unidad_id,
+      reserva_id: reserva.id,
+      cliente_id: reserva.cliente_id,
+      broker_id: u.id,
+      metadata: {
+        unidad_numero: unitNow ? unitNow.numero : null,
+        proyecto_nombre: projNow ? projNow.nombre : null,
+        cliente_nombre: cli ? cli.nombre : null,
+        motivo,
+        referencia: reserva.referencia
+      }
+    });
+
     persist();
     return window.DATA.reservas[i];
   }
@@ -753,6 +799,22 @@
     if (reserva.estado !== 'pendiente')
       throw new Error("Solo se puede confirmar una reserva pendiente");
     window.DATA.reservas[i] = { ...reserva, estado: 'confirmada', updated_at: nowIso() };
+
+    // Notif admin
+    const cli = clienteById(reserva.cliente_id);
+    const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
+    addNotificacion({
+      tipo: 'reserva_confirmada',
+      titulo: 'Reserva confirmada',
+      mensaje: `Reserva ${reserva.referencia} (${cli ? cli.nombre : '?'} · unidad ${unitNow ? unitNow.numero : '?'}) pasó a CONFIRMADA`,
+      proyecto_id: reserva.proyecto_id,
+      unidad_id: reserva.unidad_id,
+      reserva_id: reserva.id,
+      cliente_id: reserva.cliente_id,
+      broker_id: u.id,
+      metadata: { referencia: reserva.referencia, unidad_numero: unitNow ? unitNow.numero : null }
+    });
+
     persist();
     return window.DATA.reservas[i];
   }
@@ -779,6 +841,22 @@
     }
     window.DATA.reservas[i] = { ...reserva, estado: 'escriturada', updated_at: nowIso() };
     recomputeProyectoEstado(reserva.proyecto_id);
+
+    // Notif admin
+    const cli = clienteById(reserva.cliente_id);
+    const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
+    addNotificacion({
+      tipo: 'reserva_escriturada',
+      titulo: 'Reserva escriturada',
+      mensaje: `Reserva ${reserva.referencia} (${cli ? cli.nombre : '?'} · unidad ${unitNow ? unitNow.numero : '?'}) pasó a ESCRITURADA · unidad ahora VENDIDA`,
+      proyecto_id: reserva.proyecto_id,
+      unidad_id: reserva.unidad_id,
+      reserva_id: reserva.id,
+      cliente_id: reserva.cliente_id,
+      broker_id: u.id,
+      metadata: { referencia: reserva.referencia, unidad_numero: unitNow ? unitNow.numero : null }
+    });
+
     persist();
     return window.DATA.reservas[i];
   }
@@ -1016,6 +1094,117 @@
   function archivoById(id) {
     ensureArr("archivos_proyecto");
     return window.DATA.archivos_proyecto.find(a => a.id === id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SISTEMA DE NOTIFICACIONES
+  // Visibles para admin. Cada cambio importante (ingesta, reserva) genera una.
+  // ---------------------------------------------------------------------------
+  const NOTIF_TIPOS = [
+    'unidad_nueva',
+    'unidad_eliminada',
+    'unidad_modificada',
+    'reserva_creada',
+    'reserva_cancelada',
+    'reserva_confirmada',
+    'reserva_escriturada'
+  ];
+
+  function addNotificacion(data) {
+    ensureArr("notificaciones");
+    const notif = {
+      id: uid("notif"),
+      tipo: data.tipo,
+      titulo: data.titulo || '',
+      mensaje: data.mensaje || '',
+      proyecto_id: data.proyecto_id || null,
+      unidad_id: data.unidad_id || null,
+      reserva_id: data.reserva_id || null,
+      cliente_id: data.cliente_id || null,
+      broker_id: data.broker_id || null,
+      metadata: data.metadata || {},  // {antes, ahora, cambios, etc.}
+      leida: false,
+      created_at: nowIso(),
+      read_at: null
+    };
+    window.DATA.notificaciones.unshift(notif); // más nuevos primero
+    // Cap a 500 notifs para no llenar localStorage
+    if (window.DATA.notificaciones.length > 500) {
+      window.DATA.notificaciones = window.DATA.notificaciones.slice(0, 500);
+    }
+    persist();
+    return notif;
+  }
+
+  function listNotificaciones(opciones = {}) {
+    ensureArr("notificaciones");
+    let list = [...window.DATA.notificaciones];
+    if (opciones.tipo) list = list.filter(n => n.tipo === opciones.tipo);
+    if (opciones.soloNoLeidas) list = list.filter(n => !n.leida);
+    if (opciones.proyecto_id) list = list.filter(n => n.proyecto_id === opciones.proyecto_id);
+    if (opciones.limit) list = list.slice(0, opciones.limit);
+    return list;
+  }
+
+  function marcarNotificacionLeida(id) {
+    ensureArr("notificaciones");
+    const i = window.DATA.notificaciones.findIndex(n => n.id === id);
+    if (i < 0) return false;
+    if (window.DATA.notificaciones[i].leida) return true;
+    window.DATA.notificaciones[i] = {
+      ...window.DATA.notificaciones[i],
+      leida: true,
+      read_at: nowIso()
+    };
+    persist();
+    return true;
+  }
+
+  function marcarTodasLeidas() {
+    ensureArr("notificaciones");
+    const now = nowIso();
+    window.DATA.notificaciones = window.DATA.notificaciones.map(n =>
+      n.leida ? n : { ...n, leida: true, read_at: now }
+    );
+    persist();
+  }
+
+  function deleteNotificacion(id) {
+    ensureArr("notificaciones");
+    const i = window.DATA.notificaciones.findIndex(n => n.id === id);
+    if (i < 0) return false;
+    window.DATA.notificaciones.splice(i, 1);
+    persist();
+    return true;
+  }
+
+  function clearAllNotificaciones() {
+    ensureArr("notificaciones");
+    window.DATA.notificaciones = [];
+    persist();
+  }
+
+  function countNotificacionesNoLeidas() {
+    ensureArr("notificaciones");
+    return window.DATA.notificaciones.filter(n => !n.leida).length;
+  }
+
+  /** Compara dos versiones de unidad y retorna lista de cambios significativos. */
+  function detectarCambiosUnidad(antes, ahora) {
+    const camposClave = ['precio_uf', 'estado', 'tipologia', 'superficie_total',
+                          'descuento_porcentaje', 'bono_pie_porcentaje', 'orientacion', 'piso'];
+    const cambios = [];
+    for (const campo of camposClave) {
+      const vAntes = antes[campo];
+      const vAhora = ahora[campo];
+      // Normalizar números a misma precisión
+      const sAntes = (vAntes === null || vAntes === undefined || vAntes === '') ? null : (typeof vAntes === 'number' ? Number(vAntes.toFixed(2)) : vAntes);
+      const sAhora = (vAhora === null || vAhora === undefined || vAhora === '') ? null : (typeof vAhora === 'number' ? Number(vAhora.toFixed(2)) : vAhora);
+      if (sAntes !== sAhora) {
+        cambios.push({ campo, antes: sAntes, ahora: sAhora });
+      }
+    }
+    return cambios;
   }
 
   // ---------------------------------------------------------------------------
@@ -1317,6 +1506,22 @@
     if (!proyectoCol) throw new Error("El mapeo no incluye 'PROYECTO · Nombre' — es requerido");
     const proyectoHeader = proyectoCol[0];
 
+    // Snapshot de unidades existentes ANTES del import (para detectar eliminadas)
+    // Estructura: { proyectoId → Set<external_id> }
+    const unidadesExistentesAntes = {};
+    for (const [_, action] of Object.entries(proyectoActions)) {
+      const pid = action.existenteId || (action.action === 'link' ? action.existenteId : null);
+      if (pid) {
+        if (!unidadesExistentesAntes[pid]) {
+          unidadesExistentesAntes[pid] = new Set(
+            window.DATA.unidades.filter(u => u.proyecto_id === pid).map(u => u.external_id)
+          );
+        }
+      }
+    }
+    // External_ids vistos en este Excel por proyecto (para detectar eliminadas al final)
+    const externalIdsVistos = {}; // proyectoId → Set<external_id>
+
     // Auto-detección de columnas % en formato decimal (Excel guarda 0.19 = 19%)
     // Para cada columna mapeada a un field _porcentaje, chequear si los valores son ≤ 1
     // Si sí, multiplicaremos por 100 al normalizar (típico Excel chileno)
@@ -1480,16 +1685,56 @@
         if (dryRun) return;
         if (proyectoId === '__pending__') return; // En dry-run no debería pasar pero por seguridad
 
+        // Track external_ids vistos para detectar eliminadas después
+        if (!externalIdsVistos[proyectoId]) externalIdsVistos[proyectoId] = new Set();
+        externalIdsVistos[proyectoId].add(unidadData.external_id);
+
         // Upsert por (proyecto_id, external_id)
         const existing = window.DATA.unidades.find(
           un => un.proyecto_id === proyectoId && un.external_id === unidadData.external_id
         );
         if (existing) {
+          // Detectar cambios significativos antes de update
+          const cambiosDetectados = detectarCambiosUnidad(existing, unidadData);
           updateUnidad(existing.id, unidadData);
           result.unidades_actualizadas++;
+          // 1 notificación por unidad modificada (con todos sus cambios)
+          if (cambiosDetectados.length > 0) {
+            const proj = window.DATA.proyectos.find(p => p.id === proyectoId);
+            addNotificacion({
+              tipo: 'unidad_modificada',
+              titulo: 'Unidad modificada',
+              mensaje: `Unidad ${unidadData.numero} en ${proj ? proj.nombre : 'proyecto'} cambió: ${cambiosDetectados.map(c => c.campo).join(', ')}`,
+              proyecto_id: proyectoId,
+              unidad_id: existing.id,
+              metadata: {
+                unidad_numero: unidadData.numero,
+                proyecto_nombre: proj ? proj.nombre : null,
+                external_id: unidadData.external_id,
+                cambios: cambiosDetectados
+              }
+            });
+          }
         } else {
-          addUnidad(unidadData);
+          const created = addUnidad(unidadData);
           result.unidades_creadas++;
+          // 1 notificación por unidad nueva
+          const proj = window.DATA.proyectos.find(p => p.id === proyectoId);
+          addNotificacion({
+            tipo: 'unidad_nueva',
+            titulo: 'Unidad nueva',
+            mensaje: `Se agregó la unidad ${unidadData.numero} a ${proj ? proj.nombre : 'proyecto'} · UF ${(unidadData.precio_uf || 0).toLocaleString('es-CL')}`,
+            proyecto_id: proyectoId,
+            unidad_id: created.id,
+            metadata: {
+              unidad_numero: unidadData.numero,
+              proyecto_nombre: proj ? proj.nombre : null,
+              external_id: unidadData.external_id,
+              precio_uf: unidadData.precio_uf,
+              tipologia: unidadData.tipologia,
+              tipo: unidadData.tipo
+            }
+          });
         }
       } catch (e) {
         result.filas_invalidas++;
@@ -1500,6 +1745,38 @@
         });
       }
     });
+
+    // Detectar unidades que existían antes pero NO aparecen en el Excel
+    // (1 notificación por cada unidad "eliminada" del listado)
+    if (!dryRun) {
+      result.unidades_no_aparecen = 0;
+      for (const [proyectoId, existentes] of Object.entries(unidadesExistentesAntes)) {
+        const vistas = externalIdsVistos[proyectoId] || new Set();
+        for (const externalId of existentes) {
+          if (!vistas.has(externalId)) {
+            const unit = window.DATA.unidades.find(u => u.proyecto_id === proyectoId && u.external_id === externalId);
+            if (!unit) continue;
+            const proj = window.DATA.proyectos.find(p => p.id === proyectoId);
+            result.unidades_no_aparecen++;
+            addNotificacion({
+              tipo: 'unidad_eliminada',
+              titulo: 'Unidad ya no aparece en Excel',
+              mensaje: `La unidad ${unit.numero} en ${proj ? proj.nombre : 'proyecto'} estaba en sistema pero NO viene en el último Excel · estado actual: ${unit.estado}`,
+              proyecto_id: proyectoId,
+              unidad_id: unit.id,
+              metadata: {
+                unidad_numero: unit.numero,
+                proyecto_nombre: proj ? proj.nombre : null,
+                external_id: externalId,
+                ultimo_precio_uf: unit.precio_uf,
+                ultimo_estado: unit.estado,
+                tipologia: unit.tipologia
+              }
+            });
+          }
+        }
+      }
+    }
 
     result.duracion_ms = Date.now() - start;
 
@@ -2166,6 +2443,10 @@
     addArchivoProyecto, updateArchivoProyecto, deleteArchivoProyecto,
     archivosByProyecto, archivoById,
     TIPOS_ARCHIVO_PROYECTO, TIPOS_ARCHIVO_LABELS, ARCHIVO_PROYECTO_MAX_BYTES,
+    // Notificaciones
+    NOTIF_TIPOS, addNotificacion, listNotificaciones, marcarNotificacionLeida,
+    marcarTodasLeidas, deleteNotificacion, clearAllNotificaciones,
+    countNotificacionesNoLeidas, detectarCambiosUnidad,
     // Excel import
     EXCEL_FIELDS_PROYECTO, EXCEL_FIELDS_UNIDAD, EXCEL_FIELDS_ALL,
     getExcelFieldsProyecto, getExcelFieldsUnidad, getExcelFieldsAll, getExcelFieldByKey,
