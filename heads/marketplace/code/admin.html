@@ -1838,7 +1838,25 @@ function proyectoForm(id) {
             <option value="error" ${p.estado_ingesta === 'error' ? 'selected' : ''}>Error</option>
           </select>
         </div>
-        <div class="field full"><label>Imagen portada (URL)</label><input name="imagen_portada" value="${p.imagen_portada || ''}" placeholder="https://placehold.co/800x500/...?text=Mi+proyecto"></div>
+        <div class="field full">
+          <label>Imagen portada del proyecto</label>
+          <div style="display:flex;gap:8px;margin-top:6px;margin-bottom:8px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="img-mode-url">🔗 Usar URL</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="img-mode-upload">📤 Subir archivo</button>
+          </div>
+          <div id="img-url-section">
+            <input name="imagen_portada" id="img-url-input" value="${p.imagen_portada || ''}" placeholder="https://...">
+          </div>
+          <div id="img-upload-section" style="display:none;">
+            <input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" style="width:100%;padding:9px;border:1px dashed #cbd5e1;border-radius:6px;background:#f9fafb;">
+            <div style="font-size:11px;color:#6b7280;margin-top:4px;">JPG, PNG o WebP · máximo 2 MB · recomendado 1200×800 o similar</div>
+          </div>
+          <div id="img-preview" style="margin-top:10px;display:${p.imagen_portada ? 'block' : 'none'};">
+            <div style="font-size:11px;color:#475569;font-weight:600;margin-bottom:4px;">Vista previa:</div>
+            <img id="img-preview-el" src="${p.imagen_portada || ''}" style="max-width:300px;max-height:180px;border-radius:8px;border:1px solid #e2e8f0;display:block;object-fit:cover;" onerror="this.style.display='none';">
+            <button type="button" class="btn btn-ghost btn-sm" id="img-clear" style="margin-top:6px;color:#dc2626;">× Quitar imagen</button>
+          </div>
+        </div>
         <div class="field full"><label>Tipologías disponibles (separadas por coma)</label><input name="tipologias_disponibles" value="${(p.tipologias_disponibles || []).join(',')}" placeholder="1d1b,2d2b,3d2b"></div>
         <div class="field full"><label>Descripción</label><textarea name="descripcion">${p.descripcion || ''}</textarea></div>
         <div class="field"><label><input type="checkbox" name="destacado" ${p.destacado ? 'checked' : ''}> Destacado</label></div>
@@ -1851,12 +1869,94 @@ function proyectoForm(id) {
   `;
   const modal = showModal(html);
   modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+  // ===== IMAGEN PORTADA: toggle URL / upload + preview =====
+  const imgUrlSection = modal.querySelector('#img-url-section');
+  const imgUploadSection = modal.querySelector('#img-upload-section');
+  const imgUrlInput = modal.querySelector('#img-url-input');
+  const imgFileInput = modal.querySelector('#img-file-input');
+  const imgPreview = modal.querySelector('#img-preview');
+  const imgPreviewEl = modal.querySelector('#img-preview-el');
+  const imgClearBtn = modal.querySelector('#img-clear');
+  const imgModeUrlBtn = modal.querySelector('#img-mode-url');
+  const imgModeUploadBtn = modal.querySelector('#img-mode-upload');
+
+  const setImageMode = (mode) => {
+    if (mode === 'upload') {
+      imgUrlSection.style.display = 'none';
+      imgUploadSection.style.display = 'block';
+      imgModeUploadBtn.classList.remove('btn-ghost'); imgModeUploadBtn.classList.add('btn-primary');
+      imgModeUrlBtn.classList.remove('btn-primary'); imgModeUrlBtn.classList.add('btn-ghost');
+    } else {
+      imgUrlSection.style.display = 'block';
+      imgUploadSection.style.display = 'none';
+      imgModeUrlBtn.classList.remove('btn-ghost'); imgModeUrlBtn.classList.add('btn-primary');
+      imgModeUploadBtn.classList.remove('btn-primary'); imgModeUploadBtn.classList.add('btn-ghost');
+    }
+  };
+  // Default: URL mode (a menos que el valor actual sea dataURL)
+  setImageMode(p.imagen_portada && p.imagen_portada.startsWith('data:') ? 'upload' : 'url');
+
+  imgModeUrlBtn.addEventListener('click', () => setImageMode('url'));
+  imgModeUploadBtn.addEventListener('click', () => setImageMode('upload'));
+
+  imgUrlInput.addEventListener('input', () => {
+    const url = imgUrlInput.value.trim();
+    if (url) {
+      imgPreview.style.display = 'block';
+      imgPreviewEl.style.display = 'block';
+      imgPreviewEl.src = url;
+    } else {
+      imgPreview.style.display = 'none';
+    }
+  });
+
+  imgFileInput.addEventListener('change', async () => {
+    const file = imgFileInput.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast(`Imagen muy grande (${(file.size/1024/1024).toFixed(1)} MB). Máximo 2 MB.`, 'error');
+      imgFileInput.value = '';
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast('Archivo no es una imagen válida', 'error');
+      imgFileInput.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = e => resolve(e.target.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      // Guardar el dataURL en el input hidden de imagen_portada
+      imgUrlInput.value = dataUrl;
+      // Preview
+      imgPreview.style.display = 'block';
+      imgPreviewEl.style.display = 'block';
+      imgPreviewEl.src = dataUrl;
+      toast(`Imagen cargada: ${file.name} (${(file.size/1024).toFixed(0)} KB)`);
+    } catch (err) {
+      toast('Error leyendo imagen: ' + err.message, 'error');
+    }
+  });
+
+  imgClearBtn.addEventListener('click', () => {
+    imgUrlInput.value = '';
+    imgFileInput.value = '';
+    imgPreview.style.display = 'none';
+    imgPreviewEl.src = '';
+  });
+
   modal.querySelector('#form-proyecto').addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const data = Object.fromEntries(fd.entries());
     data.destacado = fd.get('destacado') === 'on';
     data.tipologias_disponibles = (data.tipologias_disponibles || '').split(',').map(s => s.trim()).filter(Boolean);
+    // imagen_portada viene del input hidden (URL o dataURL)
     try {
       if (isEdit) window.Marketplace.updateProyecto(id, data);
       else window.Marketplace.addProyecto(data);
