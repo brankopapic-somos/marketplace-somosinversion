@@ -203,7 +203,16 @@ if (__user.role !== 'admin') {
 // =============================================================================
 
 const tabContent = document.getElementById('tab-content');
-let activeTab = 'dashboard';
+const TAB_STORAGE_KEY = 'marketplace.admin.activeTab.v1';
+let activeTab = localStorage.getItem(TAB_STORAGE_KEY) || 'dashboard';
+// Re-marcar el tab guardado visualmente al cargar
+setTimeout(() => {
+  const btn = document.querySelector(`#tabs button[data-tab="${activeTab}"]`);
+  if (btn) {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+}, 0);
 
 function toast(msg, type = 'success') {
   const el = document.createElement('div');
@@ -241,6 +250,7 @@ document.querySelectorAll('#tabs button').forEach(btn => {
     document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     activeTab = btn.dataset.tab;
+    try { localStorage.setItem(TAB_STORAGE_KEY, activeTab); } catch (e) {}
     render();
   });
 });
@@ -670,7 +680,25 @@ function inmobiliariaForm(id) {
         <div class="field full"><label>Nombre público *</label><input name="nombre_publico" value="${inm.nombre_publico || ''}" required></div>
         <div class="field"><label>Slug</label><input name="slug" value="${inm.slug || ''}" placeholder="auto si vacío" pattern="[a-z0-9-]+"></div>
         <div class="field"><label>Sitio web</label><input type="url" name="sitio_web" value="${inm.sitio_web || ''}" placeholder="https://..."></div>
-        <div class="field full"><label>Logo URL</label><input name="logo_url" value="${inm.logo_url || ''}" placeholder="https://placehold.co/100x100/?text=Logo"></div>
+        <div class="field full">
+          <label>Logo de la inmobiliaria</label>
+          <div style="display:flex;gap:8px;margin-top:6px;margin-bottom:8px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="inm-logo-mode-url">🔗 Usar URL</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="inm-logo-mode-upload">📤 Subir archivo</button>
+          </div>
+          <div id="inm-logo-url-section">
+            <input name="logo_url" id="inm-logo-url-input" value="${inm.logo_url || ''}" placeholder="https://placehold.co/100x100/?text=Logo">
+          </div>
+          <div id="inm-logo-upload-section" style="display:none;">
+            <input type="file" id="inm-logo-file-input" accept="image/jpeg,image/png,image/webp,image/svg+xml,.jpg,.jpeg,.png,.webp,.svg" style="width:100%;padding:9px;border:1px dashed #cbd5e1;border-radius:6px;background:#f9fafb;">
+            <div style="font-size:11px;color:#6b7280;margin-top:4px;">JPG, PNG, WebP o SVG · máx 1 MB · recomendado 200×200 cuadrado</div>
+          </div>
+          <div id="inm-logo-preview" style="margin-top:10px;display:${inm.logo_url ? 'block' : 'none'};">
+            <div style="font-size:11px;color:#475569;font-weight:600;margin-bottom:4px;">Vista previa:</div>
+            <img id="inm-logo-preview-el" src="${inm.logo_url || ''}" style="max-width:120px;max-height:120px;border-radius:8px;border:1px solid #e2e8f0;display:block;object-fit:contain;background:#f8fafc;padding:8px;" onerror="this.style.display='none';">
+            <button type="button" class="btn btn-ghost btn-sm" id="inm-logo-clear" style="margin-top:6px;color:#dc2626;">× Quitar logo</button>
+          </div>
+        </div>
         <div class="field full"><label>Descripción</label><textarea name="descripcion">${inm.descripcion || ''}</textarea></div>
         <div class="field"><label>Fuente de stock</label>
           <select name="fuente_stock_tipo">
@@ -702,11 +730,85 @@ function inmobiliariaForm(id) {
   `;
   const modal = showModal(html);
   modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+  // ===== Logo: toggle URL / upload + preview =====
+  const logoUrlSection = modal.querySelector('#inm-logo-url-section');
+  const logoUploadSection = modal.querySelector('#inm-logo-upload-section');
+  const logoUrlInput = modal.querySelector('#inm-logo-url-input');
+  const logoFileInput = modal.querySelector('#inm-logo-file-input');
+  const logoPreview = modal.querySelector('#inm-logo-preview');
+  const logoPreviewEl = modal.querySelector('#inm-logo-preview-el');
+  const logoClear = modal.querySelector('#inm-logo-clear');
+  const logoModeUrl = modal.querySelector('#inm-logo-mode-url');
+  const logoModeUpload = modal.querySelector('#inm-logo-mode-upload');
+
+  const setLogoMode = (mode) => {
+    if (mode === 'upload') {
+      logoUrlSection.style.display = 'none';
+      logoUploadSection.style.display = 'block';
+      logoModeUpload.classList.remove('btn-ghost'); logoModeUpload.classList.add('btn-primary');
+      logoModeUrl.classList.remove('btn-primary'); logoModeUrl.classList.add('btn-ghost');
+    } else {
+      logoUrlSection.style.display = 'block';
+      logoUploadSection.style.display = 'none';
+      logoModeUrl.classList.remove('btn-ghost'); logoModeUrl.classList.add('btn-primary');
+      logoModeUpload.classList.remove('btn-primary'); logoModeUpload.classList.add('btn-ghost');
+    }
+  };
+  setLogoMode(inm.logo_url && inm.logo_url.startsWith('data:') ? 'upload' : 'url');
+  logoModeUrl.addEventListener('click', () => setLogoMode('url'));
+  logoModeUpload.addEventListener('click', () => setLogoMode('upload'));
+
+  logoUrlInput.addEventListener('input', () => {
+    const url = logoUrlInput.value.trim();
+    if (url) {
+      logoPreview.style.display = 'block';
+      logoPreviewEl.style.display = 'block';
+      logoPreviewEl.src = url;
+    } else {
+      logoPreview.style.display = 'none';
+    }
+  });
+
+  logoFileInput.addEventListener('change', async () => {
+    const file = logoFileInput.files[0];
+    if (!file) return;
+    if (file.size > 1 * 1024 * 1024) {
+      toast(`Logo muy grande (${(file.size/1024/1024).toFixed(1)} MB). Máximo 1 MB.`, 'error');
+      logoFileInput.value = '';
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast('Archivo no es una imagen', 'error');
+      logoFileInput.value = '';
+      return;
+    }
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = e => resolve(e.target.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      logoUrlInput.value = dataUrl;
+      logoPreview.style.display = 'block';
+      logoPreviewEl.style.display = 'block';
+      logoPreviewEl.src = dataUrl;
+      toast(`Logo cargado: ${file.name} (${(file.size/1024).toFixed(0)} KB)`);
+    } catch (err) { toast('Error: ' + err.message, 'error'); }
+  });
+
+  logoClear.addEventListener('click', () => {
+    logoUrlInput.value = '';
+    logoFileInput.value = '';
+    logoPreview.style.display = 'none';
+  });
+
   modal.querySelector('#form-inmob').addEventListener('submit', e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target).entries());
     data.activa = data.activa === 'true';
-    if (!data.slug) delete data.slug; // auto-generar
+    if (!data.slug) delete data.slug;
     try {
       if (isEdit) window.Marketplace.updateInmobiliaria(id, data);
       else window.Marketplace.addInmobiliaria(data);
@@ -2544,132 +2646,18 @@ function clientesAdmin() {
 function modalEditarClienteAdmin(clienteId) {
   const cli = window.Marketplace.clienteById(clienteId);
   if (!cli) { toast('Cliente no existe', 'error'); return; }
-
-  const M = window.Marketplace;
-  const opt = (val, label, current) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`;
-  const lStyle = 'font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;';
-  const fStyle = 'width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;';
-  const sStyle = 'font-size:14px;font-weight:700;color:#1e293b;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;';
-
-  const html = `
-    <h2>Editar datos del cliente</h2>
-    <p style="color:#6b7280;font-size:13px;margin-bottom:14px;">Modificás los datos del cliente. Para cambiar el broker asignado usá <strong>Reasignar</strong>.</p>
-    <form id="form-edit-cli">
-
-      <h3 style="${sStyle}">Identificación</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Nombre *</label><input name="nombre" value="${cli.nombre || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">RUT *</label><input name="rut" value="${cli.rut || ''}" pattern="[\\d.]+-[\\dkK]" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">Sexo *</label>
-          <select name="sexo" required style="${fStyle}">
-            <option value="">—</option>
-            ${opt('masculino', 'Masculino', cli.sexo)}${opt('femenino', 'Femenino', cli.sexo)}
-            ${opt('otro', 'Otro', cli.sexo)}${opt('no_responde', 'Prefiero no responder', cli.sexo)}
-          </select></div>
-        <div><label style="${lStyle}">Fecha de nacimiento *</label><input type="date" name="fecha_nacimiento" value="${cli.fecha_nacimiento || ''}" required max="${new Date().toISOString().slice(0,10)}" style="${fStyle}"></div>
-        <div><label style="${lStyle}">Nacionalidad *</label><input name="nacionalidad" value="${cli.nacionalidad || 'chilena'}" required style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Profesión *</label><input name="profesion" value="${cli.profesion || ''}" required style="${fStyle}"></div>
-      </div>
-
-      <h3 style="${sStyle}">Contacto</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Teléfono *</label><input type="tel" name="telefono" value="${cli.telefono || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">Email</label><input type="email" name="email" value="${cli.email || ''}" style="${fStyle}"></div>
-      </div>
-
-      <h3 style="${sStyle}">Domicilio</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Dirección particular *</label><input name="direccion_particular" value="${cli.direccion_particular || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">Comuna *</label><input name="comuna" value="${cli.comuna || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">Región *</label>
-          <select name="region" required style="${fStyle}">
-            <option value="">—</option>
-            ${M.CHILE_REGIONES.map(r => opt(r, r, cli.region)).join('')}
-          </select></div>
-      </div>
-
-      <h3 style="${sStyle}">Situación civil</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Estado civil *</label>
-          <select name="estado_civil" id="sel-ec-admin" required style="${fStyle}">
-            <option value="">—</option>
-            ${opt('soltero','Soltero/a',cli.estado_civil)}${opt('casado','Casado/a',cli.estado_civil)}
-            ${opt('divorciado','Divorciado/a',cli.estado_civil)}${opt('viudo','Viudo/a',cli.estado_civil)}
-          </select></div>
-        <div id="reg-cont-admin" style="display:${cli.estado_civil === 'casado' ? 'block' : 'none'};">
-          <label style="${lStyle}">Régimen matrimonial *</label>
-          <select name="regimen_matrimonial" style="${fStyle}">
-            <option value="">—</option>
-            ${opt('sociedad_conyugal','Sociedad conyugal',cli.regimen_matrimonial)}
-            ${opt('separacion_bienes','Separación de bienes',cli.regimen_matrimonial)}
-            ${opt('participacion_gananciales','Participación en gananciales',cli.regimen_matrimonial)}
-          </select></div>
-      </div>
-
-      <h3 style="${sStyle}">Situación laboral y financiera</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Condición laboral *</label>
-          <select name="condicion_laboral" required style="${fStyle}">
-            <option value="">—</option>
-            ${opt('dependiente','Dependiente',cli.condicion_laboral)}
-            ${opt('independiente','Independiente',cli.condicion_laboral)}
-          </select></div>
-        <div><label style="${lStyle}">Renta líquida (CLP) *</label><input type="number" name="renta" value="${cli.renta ?? ''}" required min="0" style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">¿Tiene DICOM? *</label>
-          <div style="display:flex;gap:18px;margin-top:6px;">
-            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;"><input type="radio" name="tiene_dicom" value="no" ${cli.tiene_dicom === false ? 'checked' : ''} required> No</label>
-            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;"><input type="radio" name="tiene_dicom" value="si" ${cli.tiene_dicom === true ? 'checked' : ''}> Sí</label>
-          </div></div>
-      </div>
-
-      <h3 style="${sStyle}">Modalidad de compra</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Compra como *</label>
-          <select name="tipo_compra" required style="${fStyle}">
-            <option value="">—</option>
-            ${opt('persona_natural','Persona natural',cli.tipo_compra)}${opt('empresa','Empresa',cli.tipo_compra)}
-          </select></div>
-        <div><label style="${lStyle}">Propósito *</label>
-          <select name="proposito_compra" required style="${fStyle}">
-            <option value="">—</option>
-            ${opt('invertir','Invertir',cli.proposito_compra)}${opt('vivir','Vivir',cli.proposito_compra)}
-          </select></div>
-      </div>
-
-      <h3 style="${sStyle}">Información adicional</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Origen</label><input name="origen" value="${cli.origen || 'manual'}" style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Notas</label><textarea name="notas" style="${fStyle};min-height:60px;font-family:inherit;">${cli.notas || ''}</textarea></div>
-      </div>
-
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Guardar cambios</button>
-      </div>
-    </form>
-  `;
+  // Usa form deduplicado de repo.js (post-audit fix #2)
+  const html = window.Marketplace.renderClienteFormHtmlShared(cli, true);
   const modal = showModal(html);
   modal.querySelector('.modal').style.maxWidth = '760px';
-  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
-
-  const ec = modal.querySelector('#sel-ec-admin');
-  const rc = modal.querySelector('#reg-cont-admin');
-  const regSel = rc.querySelector('select[name="regimen_matrimonial"]');
-  ec.addEventListener('change', () => {
-    if (ec.value === 'casado') { rc.style.display = 'block'; regSel.setAttribute('required','required'); }
-    else { rc.style.display = 'none'; regSel.removeAttribute('required'); regSel.value = ''; }
-  });
-
-  modal.querySelector('#form-edit-cli').addEventListener('submit', e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
-    try {
-      window.Marketplace.updateCliente(clienteId, data);
+  window.Marketplace.attachClienteFormHandlersShared(modal, clienteId,
+    () => {
       modal.remove();
       toast('Cliente actualizado');
       clientesAdmin();
-    } catch (err) { toast(err.message, 'error'); }
-  });
+    },
+    (err) => toast(err.message, 'error')
+  );
 }
 
 function modalReasignarCliente(clienteId) {

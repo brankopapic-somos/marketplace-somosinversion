@@ -918,12 +918,16 @@ function renderProyecto(slug) {
 
   // ===== FILTROS + ORDENAMIENTO DE UNIDADES =====
   if (unidades.length > 0) {
-    let sortField = 'precio_uf';
-    let sortDir = 'asc';     // default: precio menor a mayor
-    let filters = {
+    // Persistir orden + filtros por proyecto en sessionStorage (clave-proyecto)
+    const PREFS_KEY = `marketplace.unidades.prefs.${p.id}.v1`;
+    let savedPrefs = null;
+    try { savedPrefs = JSON.parse(sessionStorage.getItem(PREFS_KEY) || 'null'); } catch (e) {}
+    let sortField = (savedPrefs && savedPrefs.sortField) || 'precio_uf';
+    let sortDir = (savedPrefs && savedPrefs.sortDir) || 'asc';
+    let filters = (savedPrefs && savedPrefs.filters) || {
       tipologia: '',
       tipo: '',
-      estado: 'disponible',  // default: solo disponibles
+      estado: 'disponible',
       orientacion: '',
       precioMin: null,
       precioMax: null,
@@ -931,6 +935,9 @@ function renderProyecto(slug) {
       pisoMax: null,
       supMin: null,
       supMax: null
+    };
+    const savePrefs = () => {
+      try { sessionStorage.setItem(PREFS_KEY, JSON.stringify({ sortField, sortDir, filters })); } catch (e) {}
     };
 
     const tbody = document.getElementById('u-tbody');
@@ -1017,6 +1024,8 @@ function renderProyecto(slug) {
     const wireFilter = (id, key, parseNum = false) => {
       const el = document.getElementById(id);
       if (!el) return;
+      // Pre-cargar valor persistido si existe
+      if (filters[key] !== null && filters[key] !== '') el.value = filters[key];
       el.addEventListener('input', () => {
         const v = el.value;
         if (parseNum) {
@@ -1025,10 +1034,9 @@ function renderProyecto(slug) {
         } else {
           filters[key] = v;
         }
+        savePrefs();
         applyFiltersAndSort();
       });
-      // Pre-seleccionar estado=disponible
-      if (key === 'estado' && filters.estado) el.value = filters.estado;
     };
     wireFilter('u-f-tipologia', 'tipologia');
     wireFilter('u-f-tipo', 'tipo');
@@ -1050,6 +1058,8 @@ function renderProyecto(slug) {
       document.getElementById('u-f-orient').value = '';
       ['u-f-precio-min','u-f-precio-max','u-f-piso-min','u-f-piso-max','u-f-sup-min','u-f-sup-max']
         .forEach(id => { document.getElementById(id).value = ''; });
+      sortField = 'precio_uf'; sortDir = 'asc';
+      savePrefs();
       applyFiltersAndSort();
     });
 
@@ -1063,6 +1073,7 @@ function renderProyecto(slug) {
           sortField = field;
           sortDir = 'asc';
         }
+        savePrefs();
         applyFiltersAndSort();
       });
     });
@@ -1657,188 +1668,23 @@ function renderClientes() {
 
 function clienteForm(id) {
   const cli = id ? window.Marketplace.clienteById(id) : {};
-  const html = renderClienteFormHtml(cli, !!id);
+  // Usa la versión compartida en repo.js (deduplicación post-audit)
+  const html = window.Marketplace.renderClienteFormHtmlShared(cli, !!id);
   const modal = showModal(html);
   modal.querySelector('div').style.maxWidth = '720px';
-  attachClienteFormHandlers(modal, id, () => {
-    modal.remove();
-    showToast(id ? 'Cliente actualizado' : 'Cliente creado');
-    renderClientes();
-  });
+  window.Marketplace.attachClienteFormHandlersShared(modal, id,
+    () => {
+      modal.remove();
+      showToast(id ? 'Cliente actualizado' : 'Cliente creado');
+      renderClientes();
+    },
+    (err) => showToast(err.message, 'error')
+  );
 }
 
-/**
- * Genera el HTML del form de cliente con todos los campos requeridos.
- * Compartido entre catalogo (clienteForm) y admin (modalEditarClienteAdmin).
- */
-function renderClienteFormHtml(cli, isEdit) {
-  cli = cli || {};
-  const M = window.Marketplace;
-  const fStyle = 'width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;';
-  const lStyle = 'font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;';
-  const sStyle = 'font-size:15px;font-weight:700;color:#1e293b;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;';
-
-  const opt = (val, label, current) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`;
-
-  return `
-    <h2 style="margin-bottom:6px;">${isEdit ? 'Editar' : 'Nuevo'} cliente</h2>
-    <p style="font-size:12px;color:#6b7280;margin-bottom:14px;">Los campos marcados con * son obligatorios.</p>
-
-    <form id="form-cliente">
-
-      <!-- IDENTIFICACIÓN -->
-      <h3 style="${sStyle}">Identificación</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Nombre completo *</label>
-          <input name="nombre" value="${cli.nombre || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">RUT *</label>
-          <input name="rut" value="${cli.rut || ''}" placeholder="12.345.678-9" required pattern="[\\d.]+-[\\dkK]" title="Formato: 12.345.678-9" style="${fStyle}"></div>
-        <div><label style="${lStyle}">Sexo *</label>
-          <select name="sexo" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('masculino', 'Masculino', cli.sexo)}
-            ${opt('femenino', 'Femenino', cli.sexo)}
-            ${opt('otro', 'Otro', cli.sexo)}
-            ${opt('no_responde', 'Prefiero no responder', cli.sexo)}
-          </select></div>
-        <div><label style="${lStyle}">Fecha de nacimiento *</label>
-          <input type="date" name="fecha_nacimiento" value="${cli.fecha_nacimiento || ''}" required max="${new Date().toISOString().slice(0,10)}" style="${fStyle}"></div>
-        <div><label style="${lStyle}">Nacionalidad *</label>
-          <input name="nacionalidad" value="${cli.nacionalidad || 'chilena'}" required style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Profesión *</label>
-          <input name="profesion" value="${cli.profesion || ''}" required style="${fStyle}"></div>
-      </div>
-
-      <!-- CONTACTO -->
-      <h3 style="${sStyle}">Contacto</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Teléfono *</label>
-          <input type="tel" name="telefono" value="${cli.telefono || ''}" required placeholder="+56 9 1234 5678" style="${fStyle}"></div>
-        <div><label style="${lStyle}">Email</label>
-          <input type="email" name="email" value="${cli.email || ''}" style="${fStyle}"></div>
-      </div>
-
-      <!-- DOMICILIO -->
-      <h3 style="${sStyle}">Domicilio particular</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Dirección particular *</label>
-          <input name="direccion_particular" value="${cli.direccion_particular || ''}" required placeholder="Av. Ejemplo 1234, depto 501" style="${fStyle}"></div>
-        <div><label style="${lStyle}">Comuna *</label>
-          <input name="comuna" value="${cli.comuna || ''}" required style="${fStyle}"></div>
-        <div><label style="${lStyle}">Región *</label>
-          <select name="region" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${M.CHILE_REGIONES.map(r => opt(r, r, cli.region)).join('')}
-          </select></div>
-      </div>
-
-      <!-- SITUACIÓN CIVIL -->
-      <h3 style="${sStyle}">Situación civil</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Estado civil *</label>
-          <select name="estado_civil" id="sel-estado-civil" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('soltero', 'Soltero/a', cli.estado_civil)}
-            ${opt('casado', 'Casado/a', cli.estado_civil)}
-            ${opt('divorciado', 'Divorciado/a', cli.estado_civil)}
-            ${opt('viudo', 'Viudo/a', cli.estado_civil)}
-          </select></div>
-        <div id="regimen-container" style="display:${cli.estado_civil === 'casado' ? 'block' : 'none'};">
-          <label style="${lStyle}">Régimen matrimonial *</label>
-          <select name="regimen_matrimonial" style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('sociedad_conyugal', 'Sociedad conyugal', cli.regimen_matrimonial)}
-            ${opt('separacion_bienes', 'Separación total de bienes', cli.regimen_matrimonial)}
-            ${opt('participacion_gananciales', 'Participación en gananciales', cli.regimen_matrimonial)}
-          </select></div>
-      </div>
-
-      <!-- LABORAL / FINANCIERO -->
-      <h3 style="${sStyle}">Situación laboral y financiera</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Condición laboral *</label>
-          <select name="condicion_laboral" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('dependiente', 'Dependiente (con contrato)', cli.condicion_laboral)}
-            ${opt('independiente', 'Independiente (honorarios)', cli.condicion_laboral)}
-          </select></div>
-        <div><label style="${lStyle}">Renta líquida mensual (CLP) *</label>
-          <input type="number" name="renta" value="${cli.renta ?? ''}" required min="0" placeholder="1500000" style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">¿Tiene DICOM? *</label>
-          <div style="display:flex;gap:18px;margin-top:6px;">
-            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;font-size:14px;color:#1f2937;cursor:pointer;">
-              <input type="radio" name="tiene_dicom" value="no" ${cli.tiene_dicom === false ? 'checked' : ''} required> No
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;font-size:14px;color:#1f2937;cursor:pointer;">
-              <input type="radio" name="tiene_dicom" value="si" ${cli.tiene_dicom === true ? 'checked' : ''}> Sí
-            </label>
-          </div></div>
-      </div>
-
-      <!-- COMPRA -->
-      <h3 style="${sStyle}">Modalidad de compra</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div><label style="${lStyle}">Compra como *</label>
-          <select name="tipo_compra" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('persona_natural', 'Persona natural', cli.tipo_compra)}
-            ${opt('empresa', 'Empresa', cli.tipo_compra)}
-          </select></div>
-        <div><label style="${lStyle}">Propósito de compra *</label>
-          <select name="proposito_compra" required style="${fStyle}">
-            <option value="">— Seleccionar —</option>
-            ${opt('invertir', 'Invertir', cli.proposito_compra)}
-            ${opt('vivir', 'Vivir', cli.proposito_compra)}
-          </select></div>
-      </div>
-
-      <!-- ORIGEN / NOTAS -->
-      <h3 style="${sStyle}">Información adicional</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Origen del lead</label>
-          <input name="origen" value="${cli.origen || 'manual'}" placeholder="referido, web, redes, evento..." style="${fStyle}"></div>
-        <div style="grid-column:1/-1;"><label style="${lStyle}">Notas</label>
-          <textarea name="notas" style="${fStyle};min-height:70px;resize:vertical;font-family:inherit;">${cli.notas || ''}</textarea></div>
-      </div>
-
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:22px;padding-top:14px;border-top:1px solid #e2e8f0;">
-        <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
-        <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar cambios' : 'Crear cliente'}</button>
-      </div>
-    </form>
-  `;
-}
-
-/** Wiring del form de cliente — listeners de submit + condicional estado_civil */
-function attachClienteFormHandlers(modal, id, onSuccess) {
-  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
-
-  // Condicional: mostrar régimen matrimonial solo si casado
-  const estadoCivilSel = modal.querySelector('#sel-estado-civil');
-  const regimenContainer = modal.querySelector('#regimen-container');
-  const regimenSel = regimenContainer.querySelector('select[name="regimen_matrimonial"]');
-  const toggleRegimen = () => {
-    if (estadoCivilSel.value === 'casado') {
-      regimenContainer.style.display = 'block';
-      regimenSel.setAttribute('required', 'required');
-    } else {
-      regimenContainer.style.display = 'none';
-      regimenSel.removeAttribute('required');
-      regimenSel.value = '';
-    }
-  };
-  estadoCivilSel.addEventListener('change', toggleRegimen);
-
-  modal.querySelector('#form-cliente').addEventListener('submit', e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
-    try {
-      if (id) window.Marketplace.updateCliente(id, data);
-      else window.Marketplace.addCliente(data);
-      onSuccess();
-    } catch (err) { showToast(err.message, 'error'); }
-  });
-}
+// Las funciones renderClienteFormHtml y attachClienteFormHandlers fueron
+// movidas a data/repo.js como renderClienteFormHtmlShared y
+// attachClienteFormHandlersShared (deduplicación post-audit fix #2)
 
 // =============================================================================
 // COTIZACIONES — lista del broker
@@ -1955,6 +1801,9 @@ function renderReservas() {
               const metodoBg = metodo === 'reserva_cero' ? 'rgba(245, 166, 35, 0.15)' : 'rgba(46, 204, 113, 0.12)';
               const metodoColor = metodo === 'reserva_cero' ? '#92400e' : 'var(--brand-accent-strong)';
               const hasComprobante = r.comprobante && r.comprobante.dataurl;
+              // Vencida: pendiente o confirmada con fecha vencimiento < hoy
+              const hoy = new Date().toISOString().slice(0, 10);
+              const isVencida = ['pendiente','confirmada'].includes(r.estado) && r.fecha_vencimiento && r.fecha_vencimiento < hoy;
               return `
                 <tr style="border-top:1px solid #f3f4f6;">
                   <td style="padding:10px 16px;"><code style="font-size:11px;background:#f3f4f6;padding:2px 5px;border-radius:3px;">${r.referencia}</code></td>
@@ -1966,7 +1815,7 @@ function renderReservas() {
                   </td>
                   <td style="padding:10px 16px;">${r.monto_reserva_clp ? '$ ' + fmtClp(r.monto_reserva_clp) : '<small style="color:#6b7280;">—</small>'}</td>
                   <td style="padding:10px 16px;"><span style="background:${bgs[r.estado]};color:${colors[r.estado]};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${r.estado}</span></td>
-                  <td style="padding:10px 16px;font-size:12px;color:#6b7280;">${r.fecha_vencimiento}</td>
+                  <td style="padding:10px 16px;font-size:12px;color:${isVencida ? '#dc2626' : '#6b7280'};font-weight:${isVencida ? '700' : '400'};">${r.fecha_vencimiento}${isVencida ? ' ⚠ VENCIDA' : ''}</td>
                   <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
                     ${r.estado === 'pendiente' ? `<button class="btn btn-primary" data-confirm="${r.id}" style="padding:4px 10px;font-size:12px;">Confirmar</button>` : ''}
                     ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-esc="${r.id}" style="padding:4px 10px;font-size:12px;color:#16a34a;">Escriturar</button>` : ''}

@@ -220,6 +220,10 @@
         throw new Error(`No se puede borrar: el usuario tiene ${clientes} cliente(s), ${cots} cotización(es) y ${reservas} reserva(s). Reasignalos primero o usá desactivación.`);
       }
       window.DATA.usuarios.splice(i, 1);
+      // Cascade: limpiar notificaciones que apuntan a este usuario
+      if (window.DATA.notificaciones) {
+        window.DATA.notificaciones = window.DATA.notificaciones.filter(n => n.broker_id !== id);
+      }
     } else {
       // Soft delete: desactivar
       window.DATA.usuarios[i] = { ...window.DATA.usuarios[i], activo: false, updated_at: nowIso() };
@@ -402,6 +406,174 @@
     return window.DATA.clientes.find(c => c.id === id);
   }
 
+  /**
+   * Genera el HTML del formulario de Cliente con las 6 secciones canónicas.
+   * Compartido entre catalogo (broker) y admin (modal editar).
+   * @param {object} cli - datos actuales del cliente (vacío {} para nuevo)
+   * @param {boolean} isEdit - true si es edición
+   */
+  function renderClienteFormHtmlShared(cli, isEdit) {
+    cli = cli || {};
+    const fStyle = 'width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:4px;background:#fff;';
+    const lStyle = 'font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;';
+    const sStyle = 'font-size:15px;font-weight:700;color:#1e293b;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;';
+    const opt = (val, label, current) => `<option value="${val}" ${current === val ? 'selected' : ''}>${label}</option>`;
+    const today = new Date().toISOString().slice(0, 10);
+
+    return `
+      <h2 style="margin-bottom:6px;">${isEdit ? 'Editar' : 'Nuevo'} cliente</h2>
+      <p style="font-size:12px;color:#6b7280;margin-bottom:14px;">Los campos marcados con * son obligatorios.</p>
+      <form id="form-cliente">
+
+        <h3 style="${sStyle}">Identificación</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div style="grid-column:1/-1;"><label style="${lStyle}">Nombre completo *</label>
+            <input name="nombre" value="${cli.nombre || ''}" required style="${fStyle}"></div>
+          <div><label style="${lStyle}">RUT *</label>
+            <input name="rut" value="${cli.rut || ''}" placeholder="12.345.678-9" required pattern="[\\d.]+-[\\dkK]" title="Formato: 12.345.678-9" style="${fStyle}"></div>
+          <div><label style="${lStyle}">Sexo *</label>
+            <select name="sexo" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('masculino', 'Masculino', cli.sexo)}${opt('femenino', 'Femenino', cli.sexo)}
+              ${opt('otro', 'Otro', cli.sexo)}${opt('no_responde', 'Prefiero no responder', cli.sexo)}
+            </select></div>
+          <div><label style="${lStyle}">Fecha de nacimiento *</label>
+            <input type="date" name="fecha_nacimiento" value="${cli.fecha_nacimiento || ''}" required max="${today}" style="${fStyle}"></div>
+          <div><label style="${lStyle}">Nacionalidad *</label>
+            <input name="nacionalidad" value="${cli.nacionalidad || 'chilena'}" required style="${fStyle}"></div>
+          <div style="grid-column:1/-1;"><label style="${lStyle}">Profesión *</label>
+            <input name="profesion" value="${cli.profesion || ''}" required style="${fStyle}"></div>
+        </div>
+
+        <h3 style="${sStyle}">Contacto</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div><label style="${lStyle}">Teléfono *</label>
+            <input type="tel" name="telefono" value="${cli.telefono || ''}" required placeholder="+56 9 1234 5678" style="${fStyle}"></div>
+          <div><label style="${lStyle}">Email</label>
+            <input type="email" name="email" value="${cli.email || ''}" style="${fStyle}"></div>
+        </div>
+
+        <h3 style="${sStyle}">Domicilio particular</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div style="grid-column:1/-1;"><label style="${lStyle}">Dirección particular *</label>
+            <input name="direccion_particular" value="${cli.direccion_particular || ''}" required placeholder="Av. Ejemplo 1234, depto 501" style="${fStyle}"></div>
+          <div><label style="${lStyle}">Comuna *</label>
+            <input name="comuna" value="${cli.comuna || ''}" required style="${fStyle}"></div>
+          <div><label style="${lStyle}">Región *</label>
+            <select name="region" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${CHILE_REGIONES.map(r => opt(r, r, cli.region)).join('')}
+            </select></div>
+        </div>
+
+        <h3 style="${sStyle}">Situación civil</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div><label style="${lStyle}">Estado civil *</label>
+            <select name="estado_civil" id="sel-estado-civil" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('soltero', 'Soltero/a', cli.estado_civil)}${opt('casado', 'Casado/a', cli.estado_civil)}
+              ${opt('divorciado', 'Divorciado/a', cli.estado_civil)}${opt('viudo', 'Viudo/a', cli.estado_civil)}
+            </select></div>
+          <div id="regimen-container" style="display:${cli.estado_civil === 'casado' ? 'block' : 'none'};">
+            <label style="${lStyle}">Régimen matrimonial *</label>
+            <select name="regimen_matrimonial" style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('sociedad_conyugal', 'Sociedad conyugal', cli.regimen_matrimonial)}
+              ${opt('separacion_bienes', 'Separación total de bienes', cli.regimen_matrimonial)}
+              ${opt('participacion_gananciales', 'Participación en gananciales', cli.regimen_matrimonial)}
+            </select></div>
+        </div>
+
+        <h3 style="${sStyle}">Situación laboral y financiera</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div><label style="${lStyle}">Condición laboral *</label>
+            <select name="condicion_laboral" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('dependiente', 'Dependiente (con contrato)', cli.condicion_laboral)}
+              ${opt('independiente', 'Independiente (honorarios)', cli.condicion_laboral)}
+            </select></div>
+          <div><label style="${lStyle}">Renta líquida mensual (CLP) *</label>
+            <input type="number" name="renta" value="${cli.renta ?? ''}" required min="0" placeholder="1500000" style="${fStyle}"></div>
+          <div style="grid-column:1/-1;"><label style="${lStyle}">¿Tiene DICOM? *</label>
+            <div style="display:flex;gap:18px;margin-top:6px;">
+              <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;font-size:14px;color:#1f2937;cursor:pointer;">
+                <input type="radio" name="tiene_dicom" value="no" ${cli.tiene_dicom === false ? 'checked' : ''} required> No
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:400;font-size:14px;color:#1f2937;cursor:pointer;">
+                <input type="radio" name="tiene_dicom" value="si" ${cli.tiene_dicom === true ? 'checked' : ''}> Sí
+              </label>
+            </div></div>
+        </div>
+
+        <h3 style="${sStyle}">Modalidad de compra</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div><label style="${lStyle}">Compra como *</label>
+            <select name="tipo_compra" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('persona_natural', 'Persona natural', cli.tipo_compra)}
+              ${opt('empresa', 'Empresa', cli.tipo_compra)}
+            </select></div>
+          <div><label style="${lStyle}">Propósito de compra *</label>
+            <select name="proposito_compra" required style="${fStyle}">
+              <option value="">— Seleccionar —</option>
+              ${opt('invertir', 'Invertir', cli.proposito_compra)}
+              ${opt('vivir', 'Vivir', cli.proposito_compra)}
+            </select></div>
+        </div>
+
+        <h3 style="${sStyle}">Información adicional</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div style="grid-column:1/-1;"><label style="${lStyle}">Origen del lead</label>
+            <input name="origen" value="${cli.origen || 'manual'}" placeholder="referido, web, redes, evento..." style="${fStyle}"></div>
+          <div style="grid-column:1/-1;"><label style="${lStyle}">Notas</label>
+            <textarea name="notas" style="${fStyle};min-height:70px;resize:vertical;font-family:inherit;">${cli.notas || ''}</textarea></div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:22px;padding-top:14px;border-top:1px solid #e2e8f0;">
+          <button type="button" class="btn btn-ghost" id="cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar cambios' : 'Crear cliente'}</button>
+        </div>
+      </form>
+    `;
+  }
+
+  /**
+   * Wiring del form de cliente — listeners de submit + condicional estado_civil.
+   * Llamar después de showModal() con renderClienteFormHtmlShared.
+   */
+  function attachClienteFormHandlersShared(modal, id, onSuccess, onError) {
+    modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+    // Condicional: régimen matrimonial solo si casado
+    const estadoCivilSel = modal.querySelector('#sel-estado-civil');
+    const regimenContainer = modal.querySelector('#regimen-container');
+    const regimenSel = regimenContainer.querySelector('select[name="regimen_matrimonial"]');
+    estadoCivilSel.addEventListener('change', () => {
+      if (estadoCivilSel.value === 'casado') {
+        regimenContainer.style.display = 'block';
+        regimenSel.setAttribute('required', 'required');
+      } else {
+        regimenContainer.style.display = 'none';
+        regimenSel.removeAttribute('required');
+        regimenSel.value = '';
+      }
+    });
+
+    modal.querySelector('#form-cliente').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        let result;
+        if (id) result = updateCliente(id, data);
+        else result = addCliente(data);
+        if (onSuccess) onSuccess(result);
+      } catch (err) {
+        if (onError) onError(err);
+        else throw err;
+      }
+    });
+  }
+
   function listAllClientes() {
     ensureArr("clientes");
     return [...window.DATA.clientes];
@@ -569,6 +741,30 @@
       created_at: nowIso()
     };
     window.DATA.cotizaciones.push(cot);
+
+    // Notificación al admin: cotización generada
+    const proj = window.DATA.proyectos.find(p => p.id === unidad.proyecto_id);
+    addNotificacion({
+      tipo: 'cotizacion_creada',
+      titulo: 'Nueva cotización',
+      mensaje: `${u.nombre} cotizó la unidad ${unidad.numero} en ${proj ? proj.nombre : 'proyecto'} para ${cli.nombre} · UF ${unidad.precio_uf}`,
+      proyecto_id: unidad.proyecto_id,
+      unidad_id: unidad.id,
+      cotizacion_id: cot.id,
+      cliente_id: cli.id,
+      broker_id: u.id,
+      metadata: {
+        unidad_numero: unidad.numero,
+        proyecto_nombre: proj ? proj.nombre : null,
+        cliente_nombre: cli.nombre,
+        broker_nombre: u.nombre,
+        referencia: cot.referencia,
+        precio_uf: unidad.precio_uf,
+        pie_porcentaje: cot.pie_porcentaje,
+        plazo_anios: cot.plazo_anios
+      }
+    });
+
     persist();
     return cot;
   }
@@ -1107,7 +1303,8 @@
     'reserva_creada',
     'reserva_cancelada',
     'reserva_confirmada',
-    'reserva_escriturada'
+    'reserva_escriturada',
+    'cotizacion_creada'
   ];
 
   function addNotificacion(data) {
@@ -1120,9 +1317,10 @@
       proyecto_id: data.proyecto_id || null,
       unidad_id: data.unidad_id || null,
       reserva_id: data.reserva_id || null,
+      cotizacion_id: data.cotizacion_id || null,
       cliente_id: data.cliente_id || null,
       broker_id: data.broker_id || null,
-      metadata: data.metadata || {},  // {antes, ahora, cambios, etc.}
+      metadata: data.metadata || {},
       leida: false,
       created_at: nowIso(),
       read_at: null
@@ -1476,6 +1674,19 @@
    * @param {object} options - { dryRun }
    * @returns {object} resultado consolidado
    */
+  /**
+   * Auto-derivar tipología cuando una unidad no-departamento
+   * (estacionamiento/bodega/local/oficina) viene sin columna de tipología
+   * o con valor inválido. Se aplica MUTANDO unidadData in-place.
+   */
+  function autoDerivarTipologiaUnidad(unidadData) {
+    const tipologiasValidas = ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"];
+    const tiposNoDepto = ["estacionamiento","bodega","local","oficina"];
+    if (tiposNoDepto.includes(unidadData.tipo) && !tipologiasValidas.includes(unidadData.tipologia)) {
+      unidadData.tipologia = unidadData.tipo;
+    }
+  }
+
   function importExcelMultiProyecto(inmobiliariaId, rows, mapping, proyectoActions, options = {}) {
     ensureArr("unidades"); ensureArr("proyectos");
     const u = currentUser();
@@ -1655,14 +1866,10 @@
         unidadData.proyecto_id = proyectoId;
 
         // Auto-derivar tipologia para unidades no-departamento
-        // Caso típico: estacionamientos/bodegas no tienen columna de tipología real
-        // Si tipo es estacionamiento/bodega/local/oficina y tipologia falta o es inválida,
-        // setear tipologia = tipo (válido por estar en el enum)
-        const tipologiasValidas = ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"];
-        const tiposNoDepto = ["estacionamiento","bodega","local","oficina"];
-        if (tiposNoDepto.includes(unidadData.tipo) && !tipologiasValidas.includes(unidadData.tipologia)) {
-          unidadData.tipologia = unidadData.tipo;
-        }
+        // (estac/bod/local/oficina no tienen columna de tipología real en Excels típicos)
+        // Si tipo es no-depto y tipologia falta/inválida, setear tipologia = tipo
+        // IMPORTANTE: se aplica tanto en dryRun como en import real para preview consistente
+        autoDerivarTipologiaUnidad(unidadData);
 
         // Validar
         const errors = validateUnidad(unidadData);
@@ -2061,7 +2268,10 @@
   function deleteUnidad(id) {
     const i = window.DATA.unidades.findIndex(u => u.id === id);
     if (i < 0) return false;
+    const proyectoId = window.DATA.unidades[i].proyecto_id;
     window.DATA.unidades.splice(i, 1);
+    // Regla 8 del modelo: si al borrar quedan 0 disponibles → agotado
+    if (proyectoId) recomputeProyectoEstado(proyectoId);
     persist();
     return true;
   }
@@ -2432,6 +2642,7 @@
     ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
     listUsuarios, deleteUsuario, updateUsuario, validateEmail,
     addCliente, updateCliente, deleteCliente, clientesByBroker, clienteById, validateCliente, validateRut,
+    renderClienteFormHtmlShared, attachClienteFormHandlersShared,
     CHILE_REGIONES, CLIENTE_SEXOS, CLIENTE_ESTADO_CIVIL, CLIENTE_REGIMEN_MATRIMONIAL,
     CLIENTE_TIPO_COMPRA, CLIENTE_CONDICION_LABORAL, CLIENTE_PROPOSITO_COMPRA,
     listAllClientes, listBrokers, reassignCliente, reassignCotizacion, reassignReserva,
