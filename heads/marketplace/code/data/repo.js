@@ -711,6 +711,7 @@
       bodega_precio_uf: Number(data.bodega_precio_uf || 0),
       precio_unidad_base_uf: Number(data.precio_unidad_base_uf || unidad.precio_uf),
       precio_unidad_con_bono_uf: Number(data.precio_unidad_con_bono_uf || unidad.precio_uf),
+      precio_unidad_final_uf: Number(data.precio_unidad_final_uf || data.precio_unidad_con_bono_uf || unidad.precio_uf),
       precio_total_uf: Number(data.precio_total_uf || unidad.precio_uf),
 
       // Pie
@@ -718,6 +719,10 @@
       bono_pie_porcentaje: Number(data.bono_pie_porcentaje || 0),
       bono_pie_uf: Number(data.bono_pie_uf || 0),
       bono_pie_implicito_porcentaje: Number(data.bono_pie_implicito_porcentaje || 0),
+      // Descuento
+      descuento_porcentaje: Number(data.descuento_porcentaje || 0),
+      descuento_uf: Number(data.descuento_uf || 0),
+      descuento_implicito_porcentaje: Number(data.descuento_implicito_porcentaje || 0),
       delta_vs_implicito_uf: Number(data.delta_vs_implicito_uf || 0),
       pie_upfront_porcentaje: Number(data.pie_upfront_porcentaje || 0),
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
@@ -1961,6 +1966,7 @@
             precio_uf_min: nd.precio_uf_min || 100,
             precio_uf_max: nd.precio_uf_max || 999,
             bono_pie_implicito_porcentaje: Number(nd.bono_pie_implicito_porcentaje) || 0,
+            descuento_implicito_porcentaje: Number(nd.descuento_implicito_porcentaje) || 0,
             tipologias_disponibles: [],
             estado_negocio: "activo",
             estado_ingesta: "ok"
@@ -2345,6 +2351,8 @@
       pie_porcentaje: p.pie_porcentaje ? Number(p.pie_porcentaje) : null,
       bono_pie_implicito_porcentaje: p.bono_pie_implicito_porcentaje
         ? Number(p.bono_pie_implicito_porcentaje) : 0,
+      descuento_implicito_porcentaje: p.descuento_implicito_porcentaje
+        ? Number(p.descuento_implicito_porcentaje) : 0,
       reserva_clp: p.reserva_clp ? Number(p.reserva_clp) : null,
       total_unidades: p.total_unidades || null,
       total_pisos: p.total_pisos || null,
@@ -2491,6 +2499,12 @@
       const bip = Number(p.bono_pie_implicito_porcentaje);
       if (isNaN(bip) || bip < 0 || bip > 20)
         errs.push("bono_pie_implicito_porcentaje fuera de rango (0-20)");
+    }
+    // Descuento implícito: límite duro 50%
+    if (p.descuento_implicito_porcentaje !== undefined && p.descuento_implicito_porcentaje !== null) {
+      const di = Number(p.descuento_implicito_porcentaje);
+      if (isNaN(di) || di < 0 || di > 50)
+        errs.push("descuento_implicito_porcentaje fuera de rango (0-50)");
     }
     return errs;
   }

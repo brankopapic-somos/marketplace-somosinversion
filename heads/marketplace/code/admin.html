@@ -1183,7 +1183,8 @@ async function modalImportarExcelInmobiliaria(inmobiliariaId) {
               anio_entrega: new Date().getFullYear() + 1,
               precio_uf_min: 100,
               precio_uf_max: 999,
-              bono_pie_implicito_porcentaje: 0
+              bono_pie_implicito_porcentaje: 0,
+              descuento_implicito_porcentaje: 0
             }
           };
         });
@@ -1278,6 +1279,13 @@ async function modalImportarExcelInmobiliaria(inmobiliariaId) {
                     <input type="number" data-newdata="${i}.bono_pie_implicito_porcentaje" value="${p.newData.bono_pie_implicito_porcentaje ?? 0}" min="0" max="20" step="0.1" style="width:120px;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
                     <div style="font-size:10px;color:#78350f;margin-top:4px;line-height:1.3;">
                       Si los precios del Excel ya vienen inflados con bono, indicá el %. Default 0 (precios "limpios").
+                    </div>
+                  </div>
+                  <div style="grid-column:1/-1;background:#fef2f2;border-left:3px solid var(--color-danger);border-radius:4px;padding:8px 10px;">
+                    <label style="display:block;color:#991b1b;font-weight:600;margin-bottom:2px;">Descuento implícito en precios (%) — máx 50%</label>
+                    <input type="number" data-newdata="${i}.descuento_implicito_porcentaje" value="${p.newData.descuento_implicito_porcentaje ?? 0}" min="0" max="50" step="0.1" style="width:120px;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+                    <div style="font-size:10px;color:#7f1d1d;margin-top:4px;line-height:1.3;">
+                      Si los precios del Excel ya tienen descuento aplicado, indicá el %. Default 0.
                     </div>
                   </div>
                 </div>
@@ -2215,6 +2223,14 @@ function proyectoForm(id) {
           <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.4;">
             Si los precios cargados de las unidades <strong>ya incluyen un bono pie inflado</strong>, indicá el % aquí.
             El cotizador lo aplicará automáticamente para que al ajustar el bono se descuente o aumente el precio correctamente. Dejá en 0 si los precios son "limpios".
+          </div>
+        </div>
+        <div class="field full" style="background:#fef2f2;border-left:3px solid var(--color-danger);border-radius:6px;padding:10px;">
+          <label style="color:#991b1b;">Descuento implícito en precios (%) — máx 50%</label>
+          <input type="number" name="descuento_implicito_porcentaje" value="${p.descuento_implicito_porcentaje ?? 0}" min="0" max="50" step="0.1" style="max-width:120px;">
+          <div style="font-size:11px;color:#7f1d1d;margin-top:6px;line-height:1.4;">
+            Si los precios cargados de las unidades <strong>ya tienen un descuento aplicado</strong>, indicá el % aquí.
+            El cotizador lo aplicará automáticamente para que al ajustar el descuento se recalcule correctamente. Dejá en 0 si los precios son "limpios".
           </div>
         </div>
         <div class="field"><label>Estado negocio</label>
