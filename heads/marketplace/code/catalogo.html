@@ -821,9 +821,27 @@ function renderProyecto(slug) {
 
     <div class="section" id="unidades-section">
       <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <span>Unidades <span id="unidades-count" style="font-size:14px;color:#6b7280;font-weight:400;"></span></span>
+        <span>Stock del proyecto <span id="unidades-count" style="font-size:14px;color:#6b7280;font-weight:400;"></span></span>
       </h2>
       ${unidades.length === 0 ? '<p style="color:#6b7280">Sin unidades cargadas.</p>' : `
+        <!-- ===== TABS POR TIPO ===== -->
+        <div id="tipo-tabs" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;border-bottom:2px solid var(--color-border);padding-bottom:2px;">
+          ${(() => {
+            const tipoIcons = { departamento:'🏠', estacionamiento:'🚗', bodega:'📦', local:'🏪', oficina:'💼' };
+            const tipoLabels = { departamento:'Departamentos', estacionamiento:'Estacionamientos', bodega:'Bodegas', local:'Locales', oficina:'Oficinas' };
+            // Contar por tipo (todos los tipos presentes en este proyecto)
+            const tipoCounts = {};
+            unidades.forEach(u => { const t = u.tipo || 'departamento'; tipoCounts[t] = (tipoCounts[t] || 0) + 1; });
+            // Orden: departamento primero, luego el resto alfabéticamente
+            const orden = ['departamento', ...Object.keys(tipoCounts).filter(t => t !== 'departamento').sort()];
+            return orden.filter(t => tipoCounts[t]).map(t => `
+              <button data-tipo-tab="${t}" class="tipo-tab" style="background:transparent;border:none;padding:10px 18px;font-size:13px;font-weight:600;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">
+                ${tipoIcons[t] || '📦'} ${tipoLabels[t] || t} <span style="opacity:0.7;font-weight:400;">(${tipoCounts[t]})</span>
+              </button>
+            `).join('');
+          })()}
+        </div>
+
         <!-- ===== FILTROS ===== -->
         <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:10px;padding:14px;margin-bottom:14px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -838,7 +856,7 @@ function renderProyecto(slug) {
                 ${[...new Set(unidades.map(u => u.tipologia).filter(Boolean))].sort().map(t => `<option value="${t}">${t}</option>`).join('')}
               </select>
             </div>
-            <div>
+            <div style="display:none;">
               <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Tipo</label>
               <select id="u-f-tipo" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
                 <option value="">Todos</option>
@@ -923,12 +941,19 @@ function renderProyecto(slug) {
 
   // ===== FILTROS + ORDENAMIENTO DE UNIDADES =====
   if (unidades.length > 0) {
-    // Persistir orden + filtros por proyecto en sessionStorage (clave-proyecto)
+    // Persistir orden + filtros + tipo activo por proyecto en sessionStorage
     const PREFS_KEY = `marketplace.unidades.prefs.${p.id}.v1`;
     let savedPrefs = null;
     try { savedPrefs = JSON.parse(sessionStorage.getItem(PREFS_KEY) || 'null'); } catch (e) {}
     let sortField = (savedPrefs && savedPrefs.sortField) || 'precio_uf';
     let sortDir = (savedPrefs && savedPrefs.sortDir) || 'asc';
+    // Tipo activo: default 'departamento' (departamentos se muestran primero)
+    let tipoActivo = (savedPrefs && savedPrefs.tipoActivo) || 'departamento';
+    // Verificar que el tipo activo existe en este proyecto; si no, usar el primer disponible
+    const tiposPresentes = [...new Set(unidades.map(u => u.tipo || 'departamento'))];
+    if (!tiposPresentes.includes(tipoActivo)) {
+      tipoActivo = tiposPresentes.includes('departamento') ? 'departamento' : tiposPresentes[0];
+    }
     let filters = (savedPrefs && savedPrefs.filters) || {
       tipologia: '',
       tipo: '',
@@ -942,7 +967,7 @@ function renderProyecto(slug) {
       supMax: null
     };
     const savePrefs = () => {
-      try { sessionStorage.setItem(PREFS_KEY, JSON.stringify({ sortField, sortDir, filters })); } catch (e) {}
+      try { sessionStorage.setItem(PREFS_KEY, JSON.stringify({ sortField, sortDir, tipoActivo, filters })); } catch (e) {}
     };
 
     const tbody = document.getElementById('u-tbody');
@@ -951,8 +976,10 @@ function renderProyecto(slug) {
 
     const applyFiltersAndSort = () => {
       let filtered = unidades.filter(u => {
+        // Filtro principal por tipo activo (tab seleccionado)
+        const uTipo = u.tipo || 'departamento';
+        if (uTipo !== tipoActivo) return false;
         if (filters.tipologia && u.tipologia !== filters.tipologia) return false;
-        if (filters.tipo && u.tipo !== filters.tipo) return false;
         if (filters.estado && u.estado !== filters.estado) return false;
         if (filters.orientacion && u.orientacion !== filters.orientacion) return false;
         if (filters.precioMin !== null && (u.precio_uf || 0) < filters.precioMin) return false;
@@ -981,9 +1008,18 @@ function renderProyecto(slug) {
       });
 
       // Update count
-      countEl.textContent = filtered.length === unidades.length
-        ? `(${unidades.length})`
-        : `(${filtered.length} de ${unidades.length})`;
+      const totalDelTipo = unidades.filter(u => (u.tipo || 'departamento') === tipoActivo).length;
+      countEl.textContent = filtered.length === totalDelTipo
+        ? `(${totalDelTipo})`
+        : `(${filtered.length} de ${totalDelTipo})`;
+
+      // Update tabs visual (active state)
+      document.querySelectorAll('.tipo-tab').forEach(tab => {
+        const isActive = tab.dataset.tipoTab === tipoActivo;
+        tab.style.color = isActive ? 'var(--brand-accent-strong)' : '#6b7280';
+        tab.style.borderBottomColor = isActive ? 'var(--brand-accent)' : 'transparent';
+        tab.style.background = isActive ? 'rgba(46,204,113,0.06)' : 'transparent';
+      });
 
       // Update tbody
       if (filtered.length === 0) {
@@ -1078,6 +1114,15 @@ function renderProyecto(slug) {
           sortField = field;
           sortDir = 'asc';
         }
+        savePrefs();
+        applyFiltersAndSort();
+      });
+    });
+
+    // Tab por tipo (departamento / estacionamiento / bodega / local / oficina)
+    document.querySelectorAll('.tipo-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        tipoActivo = tab.dataset.tipoTab;
         savePrefs();
         applyFiltersAndSort();
       });
