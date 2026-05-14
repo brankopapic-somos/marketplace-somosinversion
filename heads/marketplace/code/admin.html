@@ -140,6 +140,7 @@
     <button data-tab="unidades">Unidades</button>
     <button data-tab="condiciones">Condiciones</button>
     <button data-tab="clientes-admin">Clientes</button>
+    <button data-tab="reservas-admin">Reservas</button>
     <button data-tab="ingesta">Ingesta</button>
     <button data-tab="auditoria">Auditoría</button>
     <button data-tab="datos">Datos</button>
@@ -278,7 +279,7 @@ function render() {
       : '';
   }
 
-  const renderers = { dashboard, notificaciones, inmobiliarias, proyectos, unidades, condiciones, "clientes-admin": clientesAdmin, ingesta, auditoria, datos };
+  const renderers = { dashboard, notificaciones, inmobiliarias, proyectos, unidades, condiciones, "clientes-admin": clientesAdmin, "reservas-admin": reservasAdmin, ingesta, auditoria, datos };
   renderers[activeTab]();
 }
 
@@ -2547,6 +2548,295 @@ function condiciones() {
 // =============================================================================
 // CLIENTES (ADMIN) — Vista global con reasignación entre brokers
 // =============================================================================
+// =============================================================================
+// RESERVAS (ADMIN) — Vista global de todas las reservas + acciones
+// =============================================================================
+function reservasAdmin() {
+  const D = window.DATA;
+  const M = window.Marketplace;
+  const reservas = (D.reservas || []).slice().sort((a, b) =>
+    (b.created_at || '').localeCompare(a.created_at || '')
+  );
+  const usuarios = D.usuarios || [];
+
+  // Filtros persistidos en sessionStorage para no perder al refrescar
+  const FK = 'marketplace.admin.reservasFilters.v1';
+  let f = {};
+  try { f = JSON.parse(sessionStorage.getItem(FK) || '{}'); } catch (e) {}
+  if (!f.estado) f.estado = 'activas';   // default: solo activas (pendiente + confirmada)
+  if (!f.broker_id) f.broker_id = '';
+  if (!f.proyecto_id) f.proyecto_id = '';
+  if (!f.metodo_pago) f.metodo_pago = '';
+
+  const saveF = () => { try { sessionStorage.setItem(FK, JSON.stringify(f)); } catch (e) {} };
+
+  // Aplicar filtros
+  let filtered = reservas;
+  if (f.estado === 'activas') {
+    filtered = filtered.filter(r => ['pendiente','confirmada'].includes(r.estado));
+  } else if (f.estado) {
+    filtered = filtered.filter(r => r.estado === f.estado);
+  }
+  if (f.broker_id) filtered = filtered.filter(r => r.broker_id === f.broker_id);
+  if (f.proyecto_id) filtered = filtered.filter(r => r.proyecto_id === f.proyecto_id);
+  if (f.metodo_pago) filtered = filtered.filter(r => (r.metodo_pago || 'transferencia') === f.metodo_pago);
+
+  // Brokers únicos con reservas (para dropdown)
+  const brokersConReservas = [...new Set(reservas.map(r => r.broker_id))]
+    .map(id => usuarios.find(u => u.id === id))
+    .filter(Boolean)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  // Stats globales
+  const totalActivas = reservas.filter(r => ['pendiente','confirmada'].includes(r.estado)).length;
+  const pendientes = reservas.filter(r => r.estado === 'pendiente').length;
+  const confirmadas = reservas.filter(r => r.estado === 'confirmada').length;
+  const escrituradas = reservas.filter(r => r.estado === 'escriturada').length;
+  const canceladas = reservas.filter(r => r.estado === 'cancelada').length;
+  const hoy = new Date().toISOString().slice(0, 10);
+  const vencidas = reservas.filter(r =>
+    ['pendiente','confirmada'].includes(r.estado) && r.fecha_vencimiento && r.fecha_vencimiento < hoy
+  ).length;
+
+  const colors = { pendiente:'#f59e0b', confirmada:'#2563eb', escriturada:'#16a34a', cancelada:'#6b7280' };
+  const bgs = { pendiente:'#fef3c7', confirmada:'#dbeafe', escriturada:'#dcfce7', cancelada:'#f3f4f6' };
+
+  tabContent.innerHTML = `
+    <div class="panel">
+      <h2 style="display:flex;justify-content:space-between;align-items:center;">
+        Reservas (vista global · ${filtered.length}${filtered.length !== reservas.length ? ' de ' + reservas.length : ''})
+      </h2>
+      <p style="color:#6b7280;font-size:13px;margin-bottom:16px;">
+        Todas las reservas del marketplace. Solo el admin puede <strong>confirmar, escriturar o cancelar</strong>.
+        El broker recibe notificación automática al cambiar el estado.
+      </p>
+
+      <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-box"><div class="lbl">Activas</div><div class="val" style="color:#2563eb;">${totalActivas}</div></div>
+        <div class="stat-box"><div class="lbl">Pendientes</div><div class="val" style="color:#f59e0b;">${pendientes}</div></div>
+        <div class="stat-box"><div class="lbl">Confirmadas</div><div class="val" style="color:#2563eb;">${confirmadas}</div></div>
+        <div class="stat-box"><div class="lbl">Escrituradas</div><div class="val" style="color:#16a34a;">${escrituradas}</div></div>
+        <div class="stat-box"><div class="lbl">Canceladas</div><div class="val" style="color:#94a3b8;">${canceladas}</div></div>
+        <div class="stat-box"><div class="lbl">Vencidas</div><div class="val" style="color:#dc2626;">${vencidas}</div></div>
+      </div>
+
+      <div style="background:#fafbfd;border:1px solid var(--color-border);border-radius:8px;padding:12px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;">
+        <div>
+          <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Estado</label>
+          <select id="ra-f-estado" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            <option value="">Todos</option>
+            <option value="activas" ${f.estado === 'activas' ? 'selected' : ''}>Activas (pendiente + confirmada)</option>
+            <option value="pendiente" ${f.estado === 'pendiente' ? 'selected' : ''}>Solo pendientes</option>
+            <option value="confirmada" ${f.estado === 'confirmada' ? 'selected' : ''}>Solo confirmadas</option>
+            <option value="escriturada" ${f.estado === 'escriturada' ? 'selected' : ''}>Escrituradas</option>
+            <option value="cancelada" ${f.estado === 'cancelada' ? 'selected' : ''}>Canceladas</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Broker</label>
+          <select id="ra-f-broker" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            <option value="">Todos</option>
+            ${brokersConReservas.map(b => `<option value="${b.id}" ${f.broker_id === b.id ? 'selected' : ''}>${b.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Proyecto</label>
+          <select id="ra-f-proyecto" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            <option value="">Todos</option>
+            ${D.proyectos.map(p => `<option value="${p.id}" ${f.proyecto_id === p.id ? 'selected' : ''}>${p.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Método pago</label>
+          <select id="ra-f-metodo" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-top:3px;">
+            <option value="">Todos</option>
+            <option value="transferencia" ${f.metodo_pago === 'transferencia' ? 'selected' : ''}>Transferencia</option>
+            <option value="reserva_cero" ${f.metodo_pago === 'reserva_cero' ? 'selected' : ''}>Reserva 0</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="ra-reset">Limpiar filtros</button>
+      </div>
+
+      ${filtered.length === 0 ? `
+        <p style="color:#9ca3af;padding:24px;text-align:center;font-size:14px;">Sin reservas que coincidan con los filtros.</p>
+      ` : `
+        <div style="overflow-x:auto;">
+          <table style="width:100%;font-size:13px;">
+            <thead>
+              <tr style="background:#f9fafb;">
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Ref</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Broker</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Cliente</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Proyecto · Unidad</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Método</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Monto</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Estado</th>
+                <th style="text-align:left;padding:10px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Vence</th>
+                <th style="padding:10px 12px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(r => {
+                const broker = usuarios.find(u => u.id === r.broker_id);
+                const cli = (D.clientes || []).find(c => c.id === r.cliente_id);
+                const un = (D.unidades || []).find(u => u.id === r.unidad_id);
+                const proj = un ? D.proyectos.find(p => p.id === un.proyecto_id) : null;
+                const metodo = r.metodo_pago || 'transferencia';
+                const metodoLabel = metodo === 'reserva_cero' ? 'Reserva 0' : 'Transf.';
+                const hasComp = r.comprobante && r.comprobante.dataurl;
+                const isVencida = ['pendiente','confirmada'].includes(r.estado) && r.fecha_vencimiento && r.fecha_vencimiento < hoy;
+                return `
+                  <tr style="border-top:1px solid #f3f4f6;${isVencida ? 'background:#fef2f2;' : ''}">
+                    <td style="padding:10px 12px;"><code style="font-size:11px;background:#f3f4f6;padding:2px 5px;border-radius:3px;">${r.referencia}</code></td>
+                    <td style="padding:10px 12px;font-size:12px;">${broker ? broker.nombre : '<span style="color:#dc2626;">[eliminado]</span>'}<br><small style="color:#6b7280;">${broker ? broker.email : ''}</small></td>
+                    <td style="padding:10px 12px;font-size:12px;">${cli ? cli.nombre : '<span style="color:#9ca3af;">[eliminado]</span>'}</td>
+                    <td style="padding:10px 12px;font-size:12px;">${proj ? proj.nombre : '—'}<br><small style="color:#6b7280;">Unidad ${un ? un.numero : '?'}</small></td>
+                    <td style="padding:10px 12px;font-size:12px;">
+                      ${metodoLabel}
+                      ${hasComp ? `<br><a href="${r.comprobante.dataurl}" download="${r.comprobante.filename}" style="font-size:11px;color:var(--brand-accent-strong);text-decoration:underline;">📎 ${r.comprobante.filename || 'comprobante'}</a>` : ''}
+                    </td>
+                    <td style="padding:10px 12px;font-size:12px;">${r.monto_reserva_clp ? '$ ' + Number(r.monto_reserva_clp).toLocaleString('es-CL') : '<small style="color:#6b7280;">—</small>'}</td>
+                    <td style="padding:10px 12px;"><span style="background:${bgs[r.estado]};color:${colors[r.estado]};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${r.estado}</span></td>
+                    <td style="padding:10px 12px;font-size:11px;color:${isVencida ? '#dc2626' : '#6b7280'};font-weight:${isVencida ? '700' : '400'};">${r.fecha_vencimiento || '—'}${isVencida ? '<br>⚠ VENCIDA' : ''}</td>
+                    <td style="padding:10px 12px;text-align:right;white-space:nowrap;">
+                      <button class="btn btn-ghost btn-sm" data-detail-r="${r.id}" style="font-size:11px;padding:3px 8px;">Ver</button>
+                      ${r.estado === 'pendiente' ? `<button class="btn btn-primary btn-sm" data-confirm-r="${r.id}" style="font-size:11px;padding:3px 8px;">Confirmar</button>` : ''}
+                      ${['pendiente','confirmada'].includes(r.estado) ? `<button class="btn btn-ghost btn-sm" data-esc-r="${r.id}" style="font-size:11px;padding:3px 8px;color:#16a34a;">Escriturar</button>` : ''}
+                      ${['pendiente','confirmada'].includes(r.estado) ? `<button class="btn btn-ghost btn-sm" data-cancel-r="${r.id}" style="font-size:11px;padding:3px 8px;color:#dc2626;">Cancelar</button>` : ''}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+    </div>
+  `;
+
+  // Wire filtros
+  const wireF = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => { f[key] = el.value; saveF(); reservasAdmin(); });
+  };
+  wireF('ra-f-estado', 'estado');
+  wireF('ra-f-broker', 'broker_id');
+  wireF('ra-f-proyecto', 'proyecto_id');
+  wireF('ra-f-metodo', 'metodo_pago');
+  document.getElementById('ra-reset').addEventListener('click', () => {
+    f = { estado: 'activas', broker_id: '', proyecto_id: '', metodo_pago: '' };
+    saveF(); reservasAdmin();
+  });
+
+  // Acciones
+  document.querySelectorAll('[data-confirm-r]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Confirmar esta reserva? El broker recibirá una notificación.')) return;
+    try {
+      M.confirmarReserva(b.dataset.confirmR);
+      toast('Reserva confirmada · broker notificado');
+      reservasAdmin();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-esc-r]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Marcar como escriturada? La unidad pasará a VENDIDA y no se puede revertir.')) return;
+    try {
+      M.escriturarReserva(b.dataset.escR);
+      toast('Reserva escriturada · unidad vendida · broker notificado');
+      reservasAdmin();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-cancel-r]').forEach(b => b.addEventListener('click', () => {
+    const motivo = prompt('Motivo de cancelación (se incluye en la notif al broker, opcional):') || '';
+    try {
+      M.cancelReserva(b.dataset.cancelR, motivo);
+      toast('Reserva cancelada · unidad liberada · broker notificado');
+      reservasAdmin();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+  document.querySelectorAll('[data-detail-r]').forEach(b => b.addEventListener('click', () => {
+    modalDetalleReservaAdmin(b.dataset.detailR);
+  }));
+}
+
+function modalDetalleReservaAdmin(reservaId) {
+  const D = window.DATA;
+  const r = (D.reservas || []).find(x => x.id === reservaId);
+  if (!r) { toast('Reserva no encontrada', 'error'); return; }
+  const broker = (D.usuarios || []).find(u => u.id === r.broker_id);
+  const cli = (D.clientes || []).find(c => c.id === r.cliente_id);
+  const un = (D.unidades || []).find(u => u.id === r.unidad_id);
+  const proj = un ? D.proyectos.find(p => p.id === un.proyecto_id) : null;
+  const inm = proj ? D.inmobiliarias.find(i => i.id === proj.inmobiliaria_id) : null;
+  const metodo = r.metodo_pago || 'transferencia';
+  const hasComp = r.comprobante && r.comprobante.dataurl;
+  const ufClp = (D.ufReferencia && D.ufReferencia.valor_clp) || 0;
+
+  const html = `
+    <h2 style="margin-bottom:6px;">Reserva <code>${r.referencia}</code></h2>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
+      <span class="badge" style="background:${{pendiente:'#fef3c7',confirmada:'#dbeafe',escriturada:'#dcfce7',cancelada:'#f3f4f6'}[r.estado]};color:${{pendiente:'#92400e',confirmada:'#1e40af',escriturada:'#065f46',cancelada:'#475569'}[r.estado]};font-size:11px;font-weight:700;text-transform:uppercase;padding:4px 10px;border-radius:4px;">${r.estado}</span>
+      <span class="badge" style="background:${metodo === 'reserva_cero' ? 'rgba(245,166,35,0.15)' : 'rgba(46,204,113,0.12)'};color:${metodo === 'reserva_cero' ? '#92400e' : 'var(--brand-accent-strong)'};font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;">${metodo === 'reserva_cero' ? 'Reserva 0' : 'Transferencia'}</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;background:#f9fafb;border-radius:8px;padding:14px;margin-bottom:14px;">
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Broker</div><div>${broker ? broker.nombre : '—'}<br><small style="color:#6b7280;">${broker ? broker.email : ''}</small></div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Cliente</div><div>${cli ? cli.nombre : '—'}${cli && cli.rut ? '<br><small style="color:#6b7280;">'+cli.rut+'</small>' : ''}</div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Inmobiliaria · Proyecto</div><div>${inm ? inm.nombre_publico : '—'}<br><small style="color:#6b7280;">${proj ? proj.nombre : ''}</small></div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Unidad</div><div>${un ? 'N° ' + un.numero + ' · ' + (un.tipologia || '') : '—'}<br><small style="color:#6b7280;">UF ${r.precio_uf_snapshot} (snapshot)</small></div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Monto reserva (CLP)</div><div>${r.monto_reserva_clp ? '$ ' + Number(r.monto_reserva_clp).toLocaleString('es-CL') : '—'}</div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Pie %</div><div>${r.pie_porcentaje ? r.pie_porcentaje + '%' : '—'}</div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Fecha reserva</div><div>${r.fecha_reserva ? new Date(r.fecha_reserva).toLocaleString('es-CL') : '—'}</div></div>
+      <div><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Vencimiento</div><div>${r.fecha_vencimiento || '—'}</div></div>
+      ${r.notas ? `<div style="grid-column:1/-1;"><div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Notas</div><div style="white-space:pre-wrap;">${r.notas}</div></div>` : ''}
+    </div>
+
+    ${hasComp ? `
+      <div style="background:rgba(46,204,113,0.06);border:1px solid var(--brand-accent);border-radius:8px;padding:14px;margin-bottom:14px;">
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#0a0e1a;margin-bottom:8px;">Comprobante de transferencia</h4>
+        <div style="display:flex;align-items:center;gap:12px;font-size:13px;">
+          <div style="font-size:24px;">📎</div>
+          <div style="flex:1;">
+            <strong>${r.comprobante.filename || 'comprobante'}</strong><br>
+            <small style="color:#6b7280;">${r.comprobante.mimetype} · ${(r.comprobante.size_bytes/1024).toFixed(0)} KB · subido ${new Date(r.comprobante.uploaded_at).toLocaleString('es-CL')}</small>
+          </div>
+          <a href="${r.comprobante.dataurl}" download="${r.comprobante.filename}" target="_blank" class="btn btn-primary btn-sm">Ver / Descargar</a>
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="cancel">Cerrar</button>
+      ${r.estado === 'pendiente' ? `<button type="button" class="btn btn-primary" data-detail-confirm="${r.id}">Confirmar reserva</button>` : ''}
+      ${['pendiente','confirmada'].includes(r.estado) ? `<button type="button" class="btn btn-ghost" data-detail-esc="${r.id}" style="color:#16a34a;">Escriturar</button>` : ''}
+      ${['pendiente','confirmada'].includes(r.estado) ? `<button type="button" class="btn btn-ghost" data-detail-cancel="${r.id}" style="color:#dc2626;">Cancelar reserva</button>` : ''}
+    </div>
+  `;
+  const modal = showModal(html);
+  modal.querySelector('.modal').style.maxWidth = '720px';
+  modal.querySelector('#cancel').addEventListener('click', () => modal.remove());
+
+  const closeAndRefresh = () => { modal.remove(); reservasAdmin(); };
+  const dc = modal.querySelector('[data-detail-confirm]');
+  if (dc) dc.addEventListener('click', () => {
+    if (!confirm('¿Confirmar esta reserva?')) return;
+    try { window.Marketplace.confirmarReserva(reservaId); toast('Reserva confirmada · broker notificado'); closeAndRefresh(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+  const de = modal.querySelector('[data-detail-esc]');
+  if (de) de.addEventListener('click', () => {
+    if (!confirm('¿Escriturar? Unidad VENDIDA, no reversible.')) return;
+    try { window.Marketplace.escriturarReserva(reservaId); toast('Escriturada · broker notificado'); closeAndRefresh(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+  const dcn = modal.querySelector('[data-detail-cancel]');
+  if (dcn) dcn.addEventListener('click', () => {
+    const motivo = prompt('Motivo (opcional):') || '';
+    try { window.Marketplace.cancelReserva(reservaId, motivo); toast('Cancelada · unidad liberada · broker notificado'); closeAndRefresh(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+}
+
 function clientesAdmin() {
   const clientes = window.Marketplace.listAllClientes();
   const usuarios = window.DATA.usuarios || [];
