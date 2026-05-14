@@ -829,10 +829,12 @@ function renderProyecto(slug) {
           ${(() => {
             const tipoIcons = { departamento:'🏠', estacionamiento:'🚗', bodega:'📦', local:'🏪', oficina:'💼' };
             const tipoLabels = { departamento:'Departamentos', estacionamiento:'Estacionamientos', bodega:'Bodegas', local:'Locales', oficina:'Oficinas' };
-            // Contar por tipo (todos los tipos presentes en este proyecto)
+            // Contar por tipo EFECTIVO (considera tipología como override para data legacy)
             const tipoCounts = {};
-            unidades.forEach(u => { const t = u.tipo || 'departamento'; tipoCounts[t] = (tipoCounts[t] || 0) + 1; });
-            // Orden: departamento primero, luego el resto alfabéticamente
+            unidades.forEach(u => {
+              const t = window.Marketplace.getTipoEfectivo(u);
+              tipoCounts[t] = (tipoCounts[t] || 0) + 1;
+            });
             const orden = ['departamento', ...Object.keys(tipoCounts).filter(t => t !== 'departamento').sort()];
             return orden.filter(t => tipoCounts[t]).map(t => `
               <button data-tipo-tab="${t}" class="tipo-tab" style="background:transparent;border:none;padding:10px 18px;font-size:13px;font-weight:600;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;transition:all 0.15s;">
@@ -949,8 +951,8 @@ function renderProyecto(slug) {
     let sortDir = (savedPrefs && savedPrefs.sortDir) || 'asc';
     // Tipo activo: default 'departamento' (departamentos se muestran primero)
     let tipoActivo = (savedPrefs && savedPrefs.tipoActivo) || 'departamento';
-    // Verificar que el tipo activo existe en este proyecto; si no, usar el primer disponible
-    const tiposPresentes = [...new Set(unidades.map(u => u.tipo || 'departamento'))];
+    // Verificar que el tipo activo existe (usa tipo efectivo para data legacy)
+    const tiposPresentes = [...new Set(unidades.map(u => window.Marketplace.getTipoEfectivo(u)))];
     if (!tiposPresentes.includes(tipoActivo)) {
       tipoActivo = tiposPresentes.includes('departamento') ? 'departamento' : tiposPresentes[0];
     }
@@ -976,10 +978,14 @@ function renderProyecto(slug) {
 
     const applyFiltersAndSort = () => {
       let filtered = unidades.filter(u => {
-        // Filtro principal por tipo activo (tab seleccionado)
-        const uTipo = u.tipo || 'departamento';
-        if (uTipo !== tipoActivo) return false;
-        if (filters.tipologia && u.tipologia !== filters.tipologia) return false;
+        // Filtro principal por tipo EFECTIVO (considera tipología como fallback
+        // para data legacy con tipo=departamento + tipologia=estacionamiento)
+        const uTipoEf = window.Marketplace.getTipoEfectivo(u);
+        if (uTipoEf !== tipoActivo) return false;
+        // Si el tab activo es no-depto, ignoramos el filtro de tipología
+        // (la "tipología" en esos casos no es un atributo significativo de filtro)
+        const tiposNoDepto = ['estacionamiento','bodega','local','oficina'];
+        if (filters.tipologia && !tiposNoDepto.includes(tipoActivo) && u.tipologia !== filters.tipologia) return false;
         if (filters.estado && u.estado !== filters.estado) return false;
         if (filters.orientacion && u.orientacion !== filters.orientacion) return false;
         if (filters.precioMin !== null && (u.precio_uf || 0) < filters.precioMin) return false;
@@ -1007,8 +1013,8 @@ function renderProyecto(slug) {
         return sortDir === 'asc' ? cmp : -cmp;
       });
 
-      // Update count
-      const totalDelTipo = unidades.filter(u => (u.tipo || 'departamento') === tipoActivo).length;
+      // Update count (usa tipo efectivo para data legacy)
+      const totalDelTipo = unidades.filter(u => window.Marketplace.getTipoEfectivo(u) === tipoActivo).length;
       countEl.textContent = filtered.length === totalDelTipo
         ? `(${totalDelTipo})`
         : `(${filtered.length} de ${totalDelTipo})`;

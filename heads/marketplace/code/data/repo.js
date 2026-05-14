@@ -1803,16 +1803,60 @@
    * @returns {object} resultado consolidado
    */
   /**
-   * Auto-derivar tipología cuando una unidad no-departamento
-   * (estacionamiento/bodega/local/oficina) viene sin columna de tipología
-   * o con valor inválido. Se aplica MUTANDO unidadData in-place.
+   * Auto-derivar tipo/tipología en imports. Maneja 2 casos asimétricos:
+   *   A) tipo=estac/bod pero tipología vacía  → tipología = tipo
+   *   B) tipología=estac/bod pero tipo=depto (default) → tipo = tipología
+   *      (caso típico: Excel pone 'EST'/'BOD' en la columna tipología sin
+   *       columna tipo separada)
+   * Se aplica MUTANDO unidadData in-place.
    */
   function autoDerivarTipologiaUnidad(unidadData) {
     const tipologiasValidas = ["studio","1d1b","2d1b","2d2b","3d2b","3d3b","4d3b","local","oficina","bodega","estacionamiento"];
     const tiposNoDepto = ["estacionamiento","bodega","local","oficina"];
+
+    // Caso A: tipo es no-depto pero tipología vacía/inválida
     if (tiposNoDepto.includes(unidadData.tipo) && !tipologiasValidas.includes(unidadData.tipologia)) {
       unidadData.tipologia = unidadData.tipo;
     }
+    // Caso B: tipología indica adicional pero tipo es departamento (default Excel)
+    // → corregir el tipo para que coincida con la naturaleza real
+    if (tiposNoDepto.includes(unidadData.tipologia) && unidadData.tipo === 'departamento') {
+      unidadData.tipo = unidadData.tipologia;
+    }
+  }
+
+  /**
+   * Helper público: retorna el tipo "efectivo" de una unidad considerando
+   * tipología como override. Permite que data legacy (con tipo=depto pero
+   * tipología=estac) se clasifique correctamente sin tocar la persistencia.
+   */
+  function getTipoEfectivo(unidad) {
+    const tiposEspeciales = ["estacionamiento","bodega","local","oficina"];
+    if (!unidad) return 'departamento';
+    if (tiposEspeciales.includes(unidad.tipologia)) return unidad.tipologia;
+    return unidad.tipo || 'departamento';
+  }
+
+  /**
+   * Migración one-shot: corrige unidades legacy donde tipo=departamento
+   * pero tipología=estac/bod/local/oficina (caso típico de Excels que
+   * solo tienen la columna tipología).
+   * Idempotente: solo modifica si detecta inconsistencia.
+   * Retorna { fixed, total } para reporting.
+   */
+  function migrarTipoUnidadesLegacy() {
+    ensureArr("unidades");
+    const tiposEspeciales = ["estacionamiento","bodega","local","oficina"];
+    let fixed = 0;
+    window.DATA.unidades = window.DATA.unidades.map(u => {
+      if (tiposEspeciales.includes(u.tipologia) && u.tipo === 'departamento') {
+        fixed++;
+        return { ...u, tipo: u.tipologia, updated_at: nowIso() };
+      }
+      return u;
+    });
+    if (fixed > 0) persist();
+    return { fixed, total: window.DATA.unidades.length };
   }
 
   function importExcelMultiProyecto(inmobiliariaId, rows, mapping, proyectoActions, options = {}) {
@@ -2765,6 +2809,14 @@
   // Inicialización + API pública
   // ---------------------------------------------------------------------------
   const source = hydrate();
+  // Migración silenciosa: corregir unidades legacy con tipo=depto + tipología=estac/bod
+  // Solo corre si hay data hidratada de localStorage (no en seeds)
+  if (source === 'localStorage') {
+    try {
+      const m = migrarTipoUnidadesLegacy();
+      if (m.fixed > 0) console.info(`[repo] Migrados ${m.fixed} unidades legacy con tipo incorrecto.`);
+    } catch (e) { console.warn('[repo] Migración legacy falló:', e); }
+  }
   window.Marketplace = {
     source, // 'localStorage' o 'seeds'
     ROLES, register, login, logout, currentUser, isAuthenticated, hasRole,
@@ -2793,7 +2845,7 @@
     detectarProyectosExcel, sugerirMatchesProyectos,
     normalizeCellValue, importExcelUnidades, importExcelMultiProyecto,
     addProyecto, updateProyecto, deleteProyecto,
-    addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado,
+    addUnidad, updateUnidad, deleteUnidad, recomputeProyectoEstado, getTipoEfectivo, migrarTipoUnidadesLegacy,
     setCondicionesProyecto,
     isValidTransition, TRANSITIONS,
     validateInmobiliaria, validateProyecto, validateUnidad,
