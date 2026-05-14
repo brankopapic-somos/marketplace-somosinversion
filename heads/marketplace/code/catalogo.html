@@ -372,11 +372,16 @@ const __user = window.Marketplace.currentUser();
   const roleBadge = __user.role === 'admin'
     ? '<span style="background:#dc2626;font-size:10px;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">admin</span>'
     : '<span style="background:#2563eb;font-size:10px;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">broker</span>';
+  const unreadCount = window.Marketplace.countNotificacionesNoLeidas(__user.id);
+  const bellBadge = unreadCount > 0
+    ? `<span style="position:absolute;top:-6px;right:-8px;background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:2px 5px;border-radius:9px;min-width:16px;text-align:center;line-height:1;">${unreadCount > 99 ? '99+' : unreadCount}</span>`
+    : '';
   nav.innerHTML = `
     <a href="#/" style="color:#fff;opacity:0.75;font-size:14px;">Catálogo</a>
     <a href="#/clientes" style="color:#fff;opacity:0.75;font-size:14px;">Mis clientes</a>
     <a href="#/cotizaciones" style="color:#fff;opacity:0.75;font-size:14px;">Cotizaciones</a>
     <a href="#/reservas" style="color:#fff;opacity:0.75;font-size:14px;">Reservas</a>
+    <a href="#/notificaciones" style="color:#fff;opacity:0.75;font-size:14px;position:relative;display:inline-block;">🔔${bellBadge}</a>
     ${adminLink}
     <div style="display:flex;align-items:center;gap:10px;padding-left:18px;border-left:1px solid rgba(255,255,255,0.15);">
       ${roleBadge}
@@ -1768,7 +1773,7 @@ function renderReservas() {
 
   view.innerHTML = `
     <div class="page-title">Mis reservas <small style="font-size:14px;color:#6b7280;font-weight:400;">(${reservas.length})</small></div>
-    <div class="page-subtitle">Toda reserva está vinculada a un cliente. La unidad reservada pasa a estado <strong>reservada</strong> automáticamente.</div>
+    <div class="page-subtitle">${__user.role === 'admin' ? 'Toda reserva está vinculada a un cliente. La unidad reservada pasa a estado <strong>reservada</strong> automáticamente.' : 'Las reservas que generás quedan en estado <strong>pendiente</strong> esperando confirmación del administrador. Vas a recibir una notificación cuando cambie de estado.'}</div>
 
     ${reservas.length === 0 ? `
       <div class="empty-state">
@@ -1817,9 +1822,11 @@ function renderReservas() {
                   <td style="padding:10px 16px;"><span style="background:${bgs[r.estado]};color:${colors[r.estado]};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${r.estado}</span></td>
                   <td style="padding:10px 16px;font-size:12px;color:${isVencida ? '#dc2626' : '#6b7280'};font-weight:${isVencida ? '700' : '400'};">${r.fecha_vencimiento}${isVencida ? ' ⚠ VENCIDA' : ''}</td>
                   <td style="padding:10px 16px;text-align:right;white-space:nowrap;">
-                    ${r.estado === 'pendiente' ? `<button class="btn btn-primary" data-confirm="${r.id}" style="padding:4px 10px;font-size:12px;">Confirmar</button>` : ''}
-                    ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-esc="${r.id}" style="padding:4px 10px;font-size:12px;color:#16a34a;">Escriturar</button>` : ''}
-                    ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-cancel="${r.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">Cancelar</button>` : ''}
+                    ${__user.role === 'admin' ? `
+                      ${r.estado === 'pendiente' ? `<button class="btn btn-primary" data-confirm="${r.id}" style="padding:4px 10px;font-size:12px;">Confirmar</button>` : ''}
+                      ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-esc="${r.id}" style="padding:4px 10px;font-size:12px;color:#16a34a;">Escriturar</button>` : ''}
+                      ${(r.estado === 'pendiente' || r.estado === 'confirmada') ? `<button class="btn btn-ghost" data-cancel="${r.id}" style="padding:4px 10px;font-size:12px;color:#dc2626;">Cancelar</button>` : ''}
+                    ` : (r.estado === 'pendiente' ? '<span style="font-size:11px;color:#f59e0b;font-style:italic;">esperando admin</span>' : '')}
                   </td>
                 </tr>
               `;
@@ -2445,6 +2452,89 @@ async function generarPdfCotizacion(cotizacionId) {
 }
 
 // =============================================================================
+// NOTIFICACIONES DEL BROKER
+// =============================================================================
+const NOTIF_ICONS = {
+  unidad_nueva: '🆕',
+  unidad_eliminada: '➖',
+  unidad_modificada: '✏️',
+  reserva_creada: '🔒',
+  reserva_cancelada: '❌',
+  reserva_confirmada: '✅',
+  reserva_escriturada: '🎉',
+  cotizacion_creada: '📋'
+};
+
+function renderNotificaciones() {
+  const u = window.Marketplace.currentUser();
+  const notifs = window.Marketplace.listNotificaciones({ user_id: u.id });
+  const unreadCount = window.Marketplace.countNotificacionesNoLeidas(u.id);
+
+  view.innerHTML = `
+    <div class="page-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Notificaciones <small style="font-size:14px;color:#6b7280;font-weight:400;">(${notifs.length}${unreadCount > 0 ? ' · ' + unreadCount + ' no leídas' : ''})</small></span>
+      ${unreadCount > 0 ? '<button class="btn btn-ghost btn-sm" id="btn-mark-all-read">Marcar todas como leídas</button>' : ''}
+    </div>
+    <div class="page-subtitle">Recibís una notificación cuando el administrador cambia el estado de tus reservas.</div>
+
+    ${notifs.length === 0 ? `
+      <div class="empty-state">
+        <h3>Sin notificaciones</h3>
+        <p>Cuando el admin confirme o cambie el estado de tus reservas, vas a verlas acá.</p>
+      </div>
+    ` : `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${notifs.map(n => {
+          const icon = NOTIF_ICONS[n.tipo] || '🔔';
+          const leidaPorUsuario = n.leida_por && n.leida_por[u.id];
+          const fecha = new Date(n.created_at);
+          const fechaStr = fecha.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+          const styleBg = leidaPorUsuario ? '#ffffff' : 'rgba(46, 204, 113, 0.06)';
+          const styleBorder = leidaPorUsuario ? 'var(--color-border)' : 'var(--brand-accent)';
+          const fontWeight = leidaPorUsuario ? '400' : '600';
+          return `
+            <div data-notif-id="${n.id}" data-reserva-id="${n.reserva_id || ''}" style="background:${styleBg};border:1px solid ${styleBorder};border-radius:10px;padding:14px 16px;cursor:pointer;transition:all 0.15s;display:flex;gap:14px;align-items:flex-start;" class="notif-card">
+              <div style="font-size:28px;flex-shrink:0;line-height:1;">${icon}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">
+                  <strong style="font-size:14px;color:#0a0e1a;font-weight:${fontWeight};">${n.titulo || n.tipo}</strong>
+                  <small style="font-size:11px;color:#94a3b8;flex-shrink:0;">${fechaStr}</small>
+                </div>
+                <div style="font-size:13px;color:#475569;line-height:1.4;">${n.mensaje}</div>
+                ${n.reserva_id ? '<div style="font-size:11px;color:var(--brand-accent-strong);margin-top:6px;">→ Ver mis reservas</div>' : ''}
+              </div>
+              ${!leidaPorUsuario ? '<div style="width:8px;height:8px;background:var(--brand-accent);border-radius:50%;flex-shrink:0;margin-top:6px;"></div>' : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  // Click: marcar leída + navegar a reservas si aplica
+  document.querySelectorAll('.notif-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = card.dataset.notifId;
+      const reservaId = card.dataset.reservaId;
+      window.Marketplace.marcarNotificacionLeida(id, u.id);
+      if (reservaId) {
+        window.location.hash = '#/reservas';
+      } else {
+        renderNotificaciones(); // re-render para reflejar leída
+      }
+    });
+  });
+
+  const btnMarkAll = document.getElementById('btn-mark-all-read');
+  if (btnMarkAll) {
+    btnMarkAll.addEventListener('click', () => {
+      window.Marketplace.marcarTodasLeidas(u.id);
+      renderNotificaciones();
+    });
+  }
+}
+
+// =============================================================================
 // ROUTER (hash-based)
 // =============================================================================
 function router() {
@@ -2458,6 +2548,7 @@ function router() {
   else if (hash === '/clientes') renderClientes();
   else if (hash === '/cotizaciones') renderCotizaciones();
   else if (hash === '/reservas') renderReservas();
+  else if (hash === '/notificaciones') renderNotificaciones();
   else renderCatalog();
 
   window.scrollTo(0, 0);

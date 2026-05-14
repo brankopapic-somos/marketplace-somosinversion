@@ -933,11 +933,12 @@
   function cancelReserva(id, motivo = "") {
     ensureArr("reservas");
     const u = currentUser();
+    // Solo admin puede cambiar estado de reservas (política nueva)
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo el administrador puede cancelar reservas");
     const i = window.DATA.reservas.findIndex(r => r.id === id);
     if (i < 0) throw new Error("Reserva no encontrada");
     const reserva = window.DATA.reservas[i];
-    if (u.role !== 'admin' && reserva.broker_id !== u.id)
-      throw new Error("No tenés permiso sobre esta reserva");
     if (['cancelada','escriturada'].includes(reserva.estado))
       throw new Error("La reserva ya está en estado " + reserva.estado);
 
@@ -958,10 +959,11 @@
     };
     recomputeProyectoEstado(reserva.proyecto_id);
 
-    // Notificación al admin
     const cli = clienteById(reserva.cliente_id);
     const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
     const projNow = window.DATA.proyectos.find(x => x.id === reserva.proyecto_id);
+
+    // Notificación al admin (registro general)
     addNotificacion({
       tipo: 'reserva_cancelada',
       titulo: 'Reserva cancelada',
@@ -980,6 +982,28 @@
       }
     });
 
+    // Notificación dirigida al broker dueño de la reserva
+    if (reserva.broker_id) {
+      addNotificacion({
+        tipo: 'reserva_cancelada',
+        titulo: '❌ Tu reserva fue cancelada',
+        mensaje: `La reserva ${reserva.referencia} (cliente ${cli ? cli.nombre : '?'}, unidad ${unitNow ? unitNow.numero : '?'}) fue cancelada por el administrador${motivo ? ' · motivo: ' + motivo : ''}`,
+        proyecto_id: reserva.proyecto_id,
+        unidad_id: reserva.unidad_id,
+        reserva_id: reserva.id,
+        cliente_id: reserva.cliente_id,
+        broker_id: reserva.broker_id,
+        target_user_id: reserva.broker_id,
+        metadata: {
+          unidad_numero: unitNow ? unitNow.numero : null,
+          proyecto_nombre: projNow ? projNow.nombre : null,
+          cliente_nombre: cli ? cli.nombre : null,
+          motivo,
+          referencia: reserva.referencia
+        }
+      });
+    }
+
     persist();
     return window.DATA.reservas[i];
   }
@@ -987,18 +1011,21 @@
   function confirmarReserva(id) {
     ensureArr("reservas");
     const u = currentUser();
+    // Solo admin puede cambiar estado de reservas (política nueva)
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo el administrador puede confirmar reservas");
     const i = window.DATA.reservas.findIndex(r => r.id === id);
     if (i < 0) throw new Error("Reserva no encontrada");
     const reserva = window.DATA.reservas[i];
-    if (u.role !== 'admin' && reserva.broker_id !== u.id)
-      throw new Error("No tenés permiso sobre esta reserva");
     if (reserva.estado !== 'pendiente')
       throw new Error("Solo se puede confirmar una reserva pendiente");
     window.DATA.reservas[i] = { ...reserva, estado: 'confirmada', updated_at: nowIso() };
 
-    // Notif admin
     const cli = clienteById(reserva.cliente_id);
     const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
+    const projNow = window.DATA.proyectos.find(x => x.id === reserva.proyecto_id);
+
+    // Notif para admin (registro)
     addNotificacion({
       tipo: 'reserva_confirmada',
       titulo: 'Reserva confirmada',
@@ -1011,6 +1038,27 @@
       metadata: { referencia: reserva.referencia, unidad_numero: unitNow ? unitNow.numero : null }
     });
 
+    // Notif dirigida al broker dueño
+    if (reserva.broker_id) {
+      addNotificacion({
+        tipo: 'reserva_confirmada',
+        titulo: '✅ Tu reserva fue confirmada',
+        mensaje: `La reserva ${reserva.referencia} (cliente ${cli ? cli.nombre : '?'}, unidad ${unitNow ? unitNow.numero : '?'}${projNow ? ' en ' + projNow.nombre : ''}) fue CONFIRMADA por el administrador.`,
+        proyecto_id: reserva.proyecto_id,
+        unidad_id: reserva.unidad_id,
+        reserva_id: reserva.id,
+        cliente_id: reserva.cliente_id,
+        broker_id: reserva.broker_id,
+        target_user_id: reserva.broker_id,
+        metadata: {
+          referencia: reserva.referencia,
+          unidad_numero: unitNow ? unitNow.numero : null,
+          proyecto_nombre: projNow ? projNow.nombre : null,
+          cliente_nombre: cli ? cli.nombre : null
+        }
+      });
+    }
+
     persist();
     return window.DATA.reservas[i];
   }
@@ -1018,11 +1066,12 @@
   function escriturarReserva(id) {
     ensureArr("reservas");
     const u = currentUser();
+    // Solo admin puede cambiar estado de reservas (política nueva)
+    if (!u || u.role !== 'admin')
+      throw new Error("Solo el administrador puede marcar reservas como escrituradas");
     const i = window.DATA.reservas.findIndex(r => r.id === id);
     if (i < 0) throw new Error("Reserva no encontrada");
     const reserva = window.DATA.reservas[i];
-    if (u.role !== 'admin' && reserva.broker_id !== u.id)
-      throw new Error("No tenés permiso sobre esta reserva");
     if (!['pendiente','confirmada'].includes(reserva.estado))
       throw new Error("Estado inválido para escriturar: " + reserva.estado);
 
@@ -1038,9 +1087,11 @@
     window.DATA.reservas[i] = { ...reserva, estado: 'escriturada', updated_at: nowIso() };
     recomputeProyectoEstado(reserva.proyecto_id);
 
-    // Notif admin
     const cli = clienteById(reserva.cliente_id);
     const unitNow = window.DATA.unidades.find(x => x.id === reserva.unidad_id);
+    const projNow = window.DATA.proyectos.find(x => x.id === reserva.proyecto_id);
+
+    // Notif admin
     addNotificacion({
       tipo: 'reserva_escriturada',
       titulo: 'Reserva escriturada',
@@ -1052,6 +1103,27 @@
       broker_id: u.id,
       metadata: { referencia: reserva.referencia, unidad_numero: unitNow ? unitNow.numero : null }
     });
+
+    // Notif dirigida al broker
+    if (reserva.broker_id) {
+      addNotificacion({
+        tipo: 'reserva_escriturada',
+        titulo: '🎉 Tu reserva fue escriturada',
+        mensaje: `La reserva ${reserva.referencia} (cliente ${cli ? cli.nombre : '?'}, unidad ${unitNow ? unitNow.numero : '?'}${projNow ? ' en ' + projNow.nombre : ''}) fue ESCRITURADA. ¡Venta cerrada!`,
+        proyecto_id: reserva.proyecto_id,
+        unidad_id: reserva.unidad_id,
+        reserva_id: reserva.id,
+        cliente_id: reserva.cliente_id,
+        broker_id: reserva.broker_id,
+        target_user_id: reserva.broker_id,
+        metadata: {
+          referencia: reserva.referencia,
+          unidad_numero: unitNow ? unitNow.numero : null,
+          proyecto_nombre: projNow ? projNow.nombre : null,
+          cliente_nombre: cli ? cli.nombre : null
+        }
+      });
+    }
 
     persist();
     return window.DATA.reservas[i];
@@ -1320,8 +1392,10 @@
       cotizacion_id: data.cotizacion_id || null,
       cliente_id: data.cliente_id || null,
       broker_id: data.broker_id || null,
+      target_user_id: data.target_user_id || null,  // si null → solo admin la ve. Si set → ese user la ve (y admin también)
       metadata: data.metadata || {},
       leida: false,
+      leida_por: {},  // { user_id: timestamp } para tracking multi-user
       created_at: nowIso(),
       read_at: null
     };
@@ -1337,33 +1411,76 @@
   function listNotificaciones(opciones = {}) {
     ensureArr("notificaciones");
     let list = [...window.DATA.notificaciones];
+
+    // Filtrado por visibilidad de usuario:
+    // - Admin: ve todas las notifs
+    // - Otros usuarios: solo las que tienen target_user_id = su id
+    if (opciones.user_id) {
+      const u = (window.DATA.usuarios || []).find(x => x.id === opciones.user_id);
+      if (u && u.role !== 'admin') {
+        list = list.filter(n => n.target_user_id === opciones.user_id);
+      }
+      // admin: sin filtro de visibilidad (ve todas)
+    }
+
     if (opciones.tipo) list = list.filter(n => n.tipo === opciones.tipo);
-    if (opciones.soloNoLeidas) list = list.filter(n => !n.leida);
+    if (opciones.soloNoLeidas) {
+      if (opciones.user_id) {
+        // Para usuarios no-admin: "leída" se trackea por usuario
+        const u = (window.DATA.usuarios || []).find(x => x.id === opciones.user_id);
+        if (u && u.role !== 'admin') {
+          list = list.filter(n => !(n.leida_por && n.leida_por[opciones.user_id]));
+        } else {
+          list = list.filter(n => !n.leida);
+        }
+      } else {
+        list = list.filter(n => !n.leida);
+      }
+    }
     if (opciones.proyecto_id) list = list.filter(n => n.proyecto_id === opciones.proyecto_id);
     if (opciones.limit) list = list.slice(0, opciones.limit);
     return list;
   }
 
-  function marcarNotificacionLeida(id) {
+  function marcarNotificacionLeida(id, userId) {
     ensureArr("notificaciones");
     const i = window.DATA.notificaciones.findIndex(n => n.id === id);
     if (i < 0) return false;
-    if (window.DATA.notificaciones[i].leida) return true;
-    window.DATA.notificaciones[i] = {
-      ...window.DATA.notificaciones[i],
-      leida: true,
-      read_at: nowIso()
-    };
+    const notif = window.DATA.notificaciones[i];
+    const now = nowIso();
+    const u = userId ? (window.DATA.usuarios || []).find(x => x.id === userId) : null;
+
+    if (u && u.role !== 'admin') {
+      // Broker: marca solo para sí mismo
+      const leida_por = { ...(notif.leida_por || {}), [userId]: now };
+      window.DATA.notificaciones[i] = { ...notif, leida_por };
+    } else {
+      // Admin (o sin userId): marca como global
+      window.DATA.notificaciones[i] = { ...notif, leida: true, read_at: now };
+    }
     persist();
     return true;
   }
 
-  function marcarTodasLeidas() {
+  function marcarTodasLeidas(userId) {
     ensureArr("notificaciones");
     const now = nowIso();
-    window.DATA.notificaciones = window.DATA.notificaciones.map(n =>
-      n.leida ? n : { ...n, leida: true, read_at: now }
-    );
+    const u = userId ? (window.DATA.usuarios || []).find(x => x.id === userId) : null;
+
+    if (u && u.role !== 'admin') {
+      // Broker: marca todas las suyas como leídas (solo las dirigidas a él)
+      window.DATA.notificaciones = window.DATA.notificaciones.map(n => {
+        if (n.target_user_id === userId && !(n.leida_por && n.leida_por[userId])) {
+          return { ...n, leida_por: { ...(n.leida_por || {}), [userId]: now } };
+        }
+        return n;
+      });
+    } else {
+      // Admin: marca todas como leídas (vista global)
+      window.DATA.notificaciones = window.DATA.notificaciones.map(n =>
+        n.leida ? n : { ...n, leida: true, read_at: now }
+      );
+    }
     persist();
   }
 
@@ -1382,9 +1499,20 @@
     persist();
   }
 
-  function countNotificacionesNoLeidas() {
+  function countNotificacionesNoLeidas(userId) {
     ensureArr("notificaciones");
-    return window.DATA.notificaciones.filter(n => !n.leida).length;
+    if (!userId) {
+      // Sin user — comportamiento legacy: cuenta las globales
+      return window.DATA.notificaciones.filter(n => !n.leida).length;
+    }
+    const u = (window.DATA.usuarios || []).find(x => x.id === userId);
+    if (u && u.role === 'admin') {
+      return window.DATA.notificaciones.filter(n => !n.leida).length;
+    }
+    // Broker: cuenta las dirigidas a él y no leídas por él
+    return window.DATA.notificaciones.filter(n =>
+      n.target_user_id === userId && !(n.leida_por && n.leida_por[userId])
+    ).length;
   }
 
   /** Compara dos versiones de unidad y retorna lista de cambios significativos. */
