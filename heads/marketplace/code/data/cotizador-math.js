@@ -1,47 +1,45 @@
 /**
  * cotizador-math.js
- * ------------------------------------------------------------------
- * Funciones puras para el cotizador inmobiliario.
+ * ================================================================
+ * Lógica Canónica — Cálculo Financiero Inmobiliario Chile
+ * ----------------------------------------------------------------
+ * Implementa la spec auto-contenida del modelo de cálculo de pie +
+ * bono pie + crédito hipotecario para proyectos inmobiliarios
+ * chilenos.
  *
- * Convenciones:
- *   - Todos los porcentajes se reciben en escala 0-100 (no 0-1).
- *   - Todos los precios se manejan en UF (Unidad de Fomento).
- *   - Las funciones son puras: no leen DOM, no acceden a window.DATA,
- *     no producen efectos secundarios. Son seguras de unit-testear.
- *   - El redondeo se aplica solo en la capa de presentación.
- *     Acá trabajamos siempre con doubles, y el último paso usa
- *     `roundUf()` para estabilizar la salida a 2 decimales.
+ * MODELO (resumen):
+ *   1. precioDeptoConDescuento = precioLista × (1 − descuentoPct)
+ *   2. precioFinal             = precioDeptoConDescuento + extras
+ *   3. pie                     = precioFinal × piePct
+ *   4. bonoPie (INFORMATIVO)   = precioFinal × bonoPiePct
+ *   5. credito                 = precioFinal − pie
+ *   6. dividendo               = PMT francés con tasaMensual geom.
  *
- * Fórmula del BONO PIE (corregida):
- *   El bono pie no es un porcentaje aditivo sobre el precio, sino una
- *   rebaja al pie del cliente. Para que `precioInflado - bono == precioBase`
- *   se cumpla exactamente con el mismo % en ambos lados, debemos usar:
+ * INVARIANTES OBLIGATORIOS:
+ *   I1. pie + credito == precioFinal
+ *   I2. precioFinal  <= precioLista + est + bod  (igualdad si desc=0)
+ *   I3. pie, credito, bonoPie  >= 0
+ *   I4. bonoPie NO entra al cuadre. Es display puro.
  *
- *       precioInflado = precioBase / (1 - bonoPorc/100)
- *       bonoUf        = precioInflado × bonoPorc/100
+ * REGLAS EXPLÍCITAS:
+ *   ✅ Aplica descuento solo al depto, no a extras.
+ *   ✅ Calcula un pie único (sin bruto/neto).
+ *   ✅ Bono pie es display, no afecta cálculo.
+ *   ❌ NO infla precio por bono pie.
+ *   ❌ NO descuenta el bono del pie del cliente.
+ *   ❌ NO aplica descuento a extras.
  *
- *   Verificación con bono 10%, base 1000 UF:
- *       precioInflado = 1000 / 0.90 = 1111.11
- *       bonoUf        = 1111.11 × 0.10 = 111.11
- *       precioInflado - bonoUf = 1000  ✓
+ * ESCALA DE PORCENTAJES:
+ *   La API principal (`calcularInversion`) trabaja en escala 0-1
+ *   conforme a la spec (0.05 = 5%).
+ *   Para conveniencia del UI (inputs en 0-100), se expone también
+ *   `calcularInversionFromPercent` que convierte y delega.
  *
- * Fórmula del DESCUENTO (estándar):
- *   El descuento es una rebaja sobre el precio:
- *
- *       precioConDesc = precio × (1 - descPorc/100)
- *
- *   El % de descuento implícito es la operación inversa:
- *       precioBase = precioPublicado / (1 - descImplPorc/100)
- *
- * Pipeline completo del precio en una cotización:
- *   precioPublicado  (lo que sale del Excel / ingesta)
- *     ↓ quitar bono implícito y/o descuento implícito
- *   precioBase       (precio "limpio")
- *     ↓ inflar por bono cotizador
- *   precioConBono
- *     ↓ aplicar descuento cotizador
- *   precioFinal
- * ------------------------------------------------------------------
+ * PRECISIÓN:
+ *   Cálculos con doubles estándar.
+ *   Helpers de redondeo (roundUf/roundClp) solo para presentación.
+ *   Función pura: no muta inputs, no toca DOM, no side-effects.
+ * ================================================================
  */
 (function (global) {
   'use strict';
@@ -50,340 +48,359 @@
   // PRIMITIVAS DE REDONDEO
   // ============================================================
 
-  /** Redondea a 2 decimales (UF) sin errores de coma flotante. */
-  function roundUf(n) {
-    if (n == null || isNaN(n)) return 0;
-    return Math.round(Number(n) * 100) / 100;
-  }
-
-  /** Redondea a entero (CLP). */
-  function roundClp(n) {
-    if (n == null || isNaN(n)) return 0;
-    return Math.round(Number(n));
-  }
-
-  /** Garantiza que un porcentaje esté en rango sano antes de aplicar fórmulas. */
-  function clampPorc(porc, min, max) {
-    const p = Number(porc) || 0;
-    if (p < min) return min;
-    if (p > max) return max;
-    return p;
-  }
+  function roundUf(n)  { return Math.round((Number(n) || 0) * 100) / 100; }
+  function roundClp(n) { return Math.round(Number(n) || 0); }
 
   // ============================================================
-  // BONO PIE — fórmula corregida (precio / (1 - bono%))
+  // VALIDACIÓN DE INPUTS (sección 3 de la spec)
   // ============================================================
 
   /**
-   * Infla un precio base aplicando bono pie del % indicado.
-   * El bono real ES exactamente bonoPorc% del precio inflado,
-   * de modo que (precioInflado - bonoReal) == precioBase.
-   *
-   * @param {number} precioBase    Precio "limpio" sin bono
-   * @param {number} bonoPorc      % de bono pie (0-100, típicamente 0-20)
-   * @returns {{ precioInflado:number, bonoUf:number }}
+   * Valida que los inputs estén en rango. Lanza Error con mensaje
+   * CRITICAL si alguno falla — el cálculo debe abortar.
    */
-  function inflarPorBono(precioBase, bonoPorc) {
-    const base = Number(precioBase) || 0;
-    const b = clampPorc(bonoPorc, 0, 99.99); // 100% rompería la división
-    if (b === 0) return { precioInflado: base, bonoUf: 0 };
-    const precioInflado = base / (1 - b / 100);
-    const bonoUf = precioInflado - base; // == precioInflado * b/100
-    return { precioInflado, bonoUf };
+  function validarInputs(i) {
+    const errs = [];
+    const isNum = (v) => typeof v === 'number' && isFinite(v);
+
+    if (!isNum(i.precioListaUF) || i.precioListaUF <= 0)
+      errs.push('precioListaUF debe ser número > 0');
+
+    if (i.descuentoPct != null) {
+      if (!isNum(i.descuentoPct) || i.descuentoPct < 0 || i.descuentoPct >= 1)
+        errs.push('descuentoPct debe estar en [0, 1)');
+    }
+    if (i.estacionamientoUF != null) {
+      if (!isNum(i.estacionamientoUF) || i.estacionamientoUF < 0)
+        errs.push('estacionamientoUF debe ser >= 0');
+    }
+    if (i.bodegaUF != null) {
+      if (!isNum(i.bodegaUF) || i.bodegaUF < 0)
+        errs.push('bodegaUF debe ser >= 0');
+    }
+    if (!isNum(i.piePct) || i.piePct <= 0 || i.piePct >= 1)
+      errs.push('piePct debe estar en (0, 1)');
+
+    if (i.bonoPiePct != null) {
+      if (!isNum(i.bonoPiePct) || i.bonoPiePct < 0 || i.bonoPiePct >= 1)
+        errs.push('bonoPiePct debe estar en [0, 1)');
+    }
+    if (!isNum(i.caePct) || i.caePct <= 0 || i.caePct > 0.15)
+      errs.push('caePct debe estar en (0, 0.15]');
+
+    if (!Number.isInteger(i.plazoAnios) || i.plazoAnios < 1 || i.plazoAnios > 40)
+      errs.push('plazoAnios debe ser entero entre 1 y 40');
+
+    if (i.ufHoy != null) {
+      if (!isNum(i.ufHoy) || i.ufHoy <= 0)
+        errs.push('ufHoy debe ser número > 0');
+    }
+
+    if (errs.length) {
+      throw new Error('CRITICAL: inputs inválidos — ' + errs.join('; '));
+    }
   }
 
+  // ============================================================
+  // INVARIANTES (sección 5)
+  // ============================================================
+
   /**
-   * Operación inversa: quita un bono implícito del precio publicado
-   * para recuperar el precio base "limpio".
-   *
-   * Si el precio publicado YA fue inflado con bono implícito B%,
-   * entonces: precioBase = precioPublicado × (1 - B/100)
-   *
-   * @param {number} precioPublicado
-   * @param {number} bonoImplPorc
-   * @returns {number} precioBase
+   * Verifica los 4 invariantes obligatorios. Lanza Error si falla.
+   * Toleramos 0.01 UF de error de coma flotante para la comparación
+   * exacta del cuadre (I1, I2).
    */
-  function quitarBonoImplicito(precioPublicado, bonoImplPorc) {
-    const pub = Number(precioPublicado) || 0;
-    const b = clampPorc(bonoImplPorc, 0, 99.99);
-    return pub * (1 - b / 100);
+  function verificarInvariantes(r, i) {
+    const TOL = 0.01;
+    // I1 — cuadre del dinero
+    if (Math.abs((r.pieUF + r.creditoUF) - r.precioFinalUF) > TOL) {
+      throw new Error(`CRITICAL: I1 falló — pie(${r.pieUF}) + credito(${r.creditoUF}) != precioFinal(${r.precioFinalUF})`);
+    }
+    // I2 — precio final no excede la suma sin descuento
+    const techo = i.precioListaUF + (i.estacionamientoUF || 0) + (i.bodegaUF || 0);
+    if (r.precioFinalUF > techo + TOL) {
+      throw new Error(`CRITICAL: I2 falló — precioFinal(${r.precioFinalUF}) > techo(${techo})`);
+    }
+    // I3 — no negatividad
+    if (r.pieUF < 0 || r.creditoUF < 0 || r.bonoPieUF < 0) {
+      throw new Error(`CRITICAL: I3 falló — algún valor es negativo (pie=${r.pieUF}, credito=${r.creditoUF}, bono=${r.bonoPieUF})`);
+    }
+    // I4 — bono es informativo (verificación estructural: el bono NO está sumado al cuadre)
+    // Equivale a chequear que I1 ya pasó: pie + credito = precioFinal (sin restarle el bono).
+    // Ya verificado arriba; este check es redundante pero documenta la intención.
   }
 
   // ============================================================
-  // DESCUENTO — fórmula estándar (precio × (1 - desc%))
+  // FÓRMULAS NÚCLEO (secciones 4 y 6 de la spec)
   // ============================================================
 
   /**
-   * Aplica un descuento sobre un precio.
-   *
-   * @param {number} precio
-   * @param {number} descPorc      % de descuento (0-100, típicamente 0-50)
-   * @returns {{ precioConDesc:number, descuentoUf:number }}
+   * PASO 1 — Aplica descuento al precio lista del depto.
+   * (NO se aplica a los extras.)
    */
-  function aplicarDescuento(precio, descPorc) {
-    const p = Number(precio) || 0;
-    const d = clampPorc(descPorc, 0, 99.99);
-    if (d === 0) return { precioConDesc: p, descuentoUf: 0 };
-    const descuentoUf = p * (d / 100);
-    return { precioConDesc: p - descuentoUf, descuentoUf };
+  function aplicarDescuentoDepto(precioListaUF, descuentoPct) {
+    return precioListaUF * (1 - (descuentoPct || 0));
   }
 
   /**
-   * Operación inversa: quita un descuento implícito del precio publicado
-   * para recuperar el precio base sin descuento.
-   *
-   * Si publicado = base × (1 - D/100), entonces:
-   *   base = publicado / (1 - D/100)
-   *
-   * @param {number} precioPublicado
-   * @param {number} descImplPorc
-   * @returns {number} precioBase
+   * PASO 2 — Suma los extras (estacionamiento + bodega) al depto
+   * ya con descuento aplicado.
    */
-  function quitarDescuentoImplicito(precioPublicado, descImplPorc) {
-    const pub = Number(precioPublicado) || 0;
-    const d = clampPorc(descImplPorc, 0, 99.99);
-    if (d === 0) return pub;
-    return pub / (1 - d / 100);
+  function calcularPrecioFinal(precioDeptoConDescuentoUF, estUF, bodUF) {
+    return precioDeptoConDescuentoUF + (estUF || 0) + (bodUF || 0);
   }
 
-  // ============================================================
-  // CADENA COMPLETA — publicado → base → con bono → final
-  // ============================================================
-
   /**
-   * Calcula el precio base "limpio" a partir del precio publicado
-   * removiendo bono implícito y descuento implícito en el orden correcto.
-   *
-   * El precio publicado se construye así:
-   *   precioPublicado = (base inflado por bonoImpl) × (1 - descImpl/100)
-   *                   = base / (1 - bonoImpl/100) × (1 - descImpl/100)
-   *
-   * Por tanto el inverso es:
-   *   base = precioPublicado / (1 - descImpl/100) × (1 - bonoImpl/100)
-   *        = quitarBonoImplicito( quitarDescuentoImplicito(publicado, descImpl), bonoImpl )
-   *
-   * @param {number} precioPublicado
-   * @param {number} bonoImplPorc
-   * @param {number} descImplPorc
-   * @returns {number} precioBase
+   * PASO 3 — Pie único sobre el precio final.
+   * No hay "pie bruto" ni "pie neto". Pie es uno solo.
    */
-  function calcularPrecioBase(precioPublicado, bonoImplPorc, descImplPorc) {
-    const sinDesc = quitarDescuentoImplicito(precioPublicado, descImplPorc);
-    return quitarBonoImplicito(sinDesc, bonoImplPorc);
+  function calcularPie(precioFinalUF, piePct) {
+    return precioFinalUF * piePct;
   }
 
   /**
-   * Aplica bono y descuento del cotizador sobre el precio base.
-   *
-   * @param {number} precioBase
-   * @param {number} bonoPorc
-   * @param {number} descPorc
-   * @returns {{ precioBase:number, precioConBono:number, bonoUf:number, precioFinal:number, descuentoUf:number }}
+   * PASO 4 — Bono pie INFORMATIVO.
+   * Es display puro del catálogo. NO afecta pie ni crédito.
    */
-  function aplicarAjustesCotizador(precioBase, bonoPorc, descPorc) {
-    const { precioInflado: precioConBono, bonoUf } = inflarPorBono(precioBase, bonoPorc);
-    const { precioConDesc: precioFinal, descuentoUf } = aplicarDescuento(precioConBono, descPorc);
-    return { precioBase, precioConBono, bonoUf, precioFinal, descuentoUf };
+  function calcularBonoPieInformativo(precioFinalUF, bonoPiePct) {
+    return precioFinalUF * (bonoPiePct || 0);
   }
 
-  // ============================================================
-  // DIVIDENDO HIPOTECARIO — amortización francesa
-  // ============================================================
-
   /**
-   * Calcula el dividendo mensual con amortización francesa.
-   *
-   *   dividendo = saldo × ( i × (1+i)^n / ((1+i)^n - 1) )
-   *
-   * @param {number} saldoUf       Capital a financiar (UF)
-   * @param {number} tasaAnualPorc CAE anual en %
-   * @param {number} plazoMeses    Cantidad de cuotas
-   * @returns {number} dividendo mensual en UF
+   * PASO 5 — Crédito hipotecario = lo que financia el banco.
+   * El bono pie NO se resta acá. El cliente paga pie completo.
    */
-  function calcularDividendoMensual(saldoUf, tasaAnualPorc, plazoMeses) {
-    const saldo = Number(saldoUf) || 0;
-    const n = Number(plazoMeses) || 0;
-    const tasaAnual = Number(tasaAnualPorc) || 0;
-    if (saldo <= 0 || n <= 0 || tasaAnual <= 0) return 0;
-    const i = tasaAnual / 100 / 12;
-    const factor = Math.pow(1 + i, n);
-    return saldo * (i * factor) / (factor - 1);
+  function calcularCredito(precioFinalUF, pieUF) {
+    return precioFinalUF - pieUF;
+  }
+
+  /**
+   * PASO 6 — Dividendo mensual con amortización francesa (PMT).
+   * Tasa mensual derivada geométricamente de la CAE:
+   *   tasaMensual = (1 + caePct)^(1/12) − 1
+   * Esto convierte una tasa anual efectiva en su equivalente mensual
+   * efectivo (financieramente correcto para CAE).
+   */
+  function calcularDividendo(creditoUF, caePct, plazoAnios) {
+    if (creditoUF <= 0 || plazoAnios <= 0) return 0;
+    const tasaMensual = Math.pow(1 + caePct, 1 / 12) - 1;
+    if (tasaMensual === 0) return creditoUF / (plazoAnios * 12);
+    const n = plazoAnios * 12;
+    const factor = Math.pow(1 + tasaMensual, n);
+    return creditoUF * tasaMensual * factor / (factor - 1);
   }
 
   // ============================================================
-  // COTIZACIÓN COMPLETA — función agregadora
+  // API PRINCIPAL — calcularInversion (escala 0-1, spec textual)
   // ============================================================
 
   /**
-   * Calcula una cotización completa: precio inflado, bono, descuento,
-   * pie real, saldo a financiar, dividendo mensual y total con intereses.
-   *
-   * No produce efectos secundarios: solo retorna un objeto inmutable
-   * con todos los valores derivados, listo para renderizar.
+   * Función pura que implementa el modelo canónico completo.
+   * Inputs y outputs según secciones 3, 4 y 11 de la spec.
    *
    * @param {Object} input
-   * @param {number} input.precioPublicadoUf    Precio que sale de DATA (ya con implícitos)
-   * @param {number} input.bonoImplicitoPorc    Bono implícito en el precio publicado (default 0)
-   * @param {number} input.descImplicitoPorc    Descuento implícito en el precio publicado (default 0)
-   * @param {number} input.bonoPorc             Bono pie del cotizador (input usuario)
-   * @param {number} input.descuentoPorc        Descuento del cotizador (input usuario)
-   * @param {number} input.estCant              Cantidad de estacionamientos
-   * @param {number} input.estPrecioUf          Precio unitario estacionamiento UF
-   * @param {number} input.bodCant              Cantidad de bodegas
-   * @param {number} input.bodPrecioUf          Precio unitario bodega UF
-   * @param {number} input.piePorc              % de pie sobre precio total
-   * @param {number} input.upfrontPorc          % pago inicial al firmar (sobre total)
-   * @param {number} input.cuotasN              Cuotas de pie sin interés
-   * @param {number} input.cuotaFinalPorc       % cuota final al escriturar
-   * @param {number} input.plazoMeses           Plazo crédito en meses
-   * @param {number} input.tasaAnualPorc        CAE %
-   * @param {number} input.ufClp                Valor UF en CLP (para conversiones)
-   * @returns {Object} desglose completo
+   * @param {number} input.precioListaUF       Precio lista del depto (> 0)
+   * @param {number} [input.descuentoPct=0]    Descuento sobre depto [0, 1)
+   * @param {number} [input.estacionamientoUF=0]
+   * @param {number} [input.bodegaUF=0]
+   * @param {number} input.piePct              % pie (0, 1)
+   * @param {number} [input.bonoPiePct=0]      % bono pie informativo [0, 1)
+   * @param {number} input.caePct              CAE anual (0, 0.15]
+   * @param {number} input.plazoAnios          1-40
+   * @param {number} [input.ufHoy=0]           Valor UF en CLP (para outputs CLP)
+   * @returns {Object} Resultado del modelo (immutable)
    */
-  function calcularCotizacion(input) {
-    const i = input || {};
-    // === 1. Inputs normalizados ===
-    const precioPublicado = Number(i.precioPublicadoUf) || 0;
-    const bonoImpl = Number(i.bonoImplicitoPorc) || 0;
-    const descImpl = Number(i.descImplicitoPorc) || 0;
-    const bonoPorc = Number(i.bonoPorc) || 0;
-    const descuentoPorc = Number(i.descuentoPorc) || 0;
+  function calcularInversion(input) {
+    validarInputs(input);
 
-    const estCant = Number(i.estCant) || 0;
-    const estPrecio = Number(i.estPrecioUf) || 0;
-    const bodCant = Number(i.bodCant) || 0;
-    const bodPrecio = Number(i.bodPrecioUf) || 0;
+    const precioListaUF       = input.precioListaUF;
+    const descuentoPct        = input.descuentoPct || 0;
+    const estacionamientoUF   = input.estacionamientoUF || 0;
+    const bodegaUF            = input.bodegaUF || 0;
+    const piePct              = input.piePct;
+    const bonoPiePct          = input.bonoPiePct || 0;
+    const caePct              = input.caePct;
+    const plazoAnios          = input.plazoAnios;
+    const ufHoy               = input.ufHoy || 0;
 
-    const piePorc = Number(i.piePorc) || 0;
-    const upfrontPorc = Number(i.upfrontPorc) || 0;
-    const cuotasN = Number(i.cuotasN) || 0;
-    const cuotaFinalPorc = Number(i.cuotaFinalPorc) || 0;
+    // Pipeline canónico
+    const precioDeptoConDescuentoUF = aplicarDescuentoDepto(precioListaUF, descuentoPct);
+    const precioFinalUF             = calcularPrecioFinal(precioDeptoConDescuentoUF, estacionamientoUF, bodegaUF);
+    const pieUF                     = calcularPie(precioFinalUF, piePct);
+    const bonoPieUF                 = calcularBonoPieInformativo(precioFinalUF, bonoPiePct);
+    const creditoUF                 = calcularCredito(precioFinalUF, pieUF);
+    const dividendoUF               = calcularDividendo(creditoUF, caePct, plazoAnios);
 
-    const plazoMeses = Number(i.plazoMeses) || 0;
-    const tasa = Number(i.tasaAnualPorc) || 0;
-    const ufClp = Number(i.ufClp) || 0;
+    // Equivalentes CLP
+    const precioFinalCLP = precioFinalUF * ufHoy;
+    const pieCLP         = pieUF         * ufHoy;
+    const creditoCLP     = creditoUF     * ufHoy;
+    const dividendoCLP   = dividendoUF   * ufHoy;
+    const bonoPieCLP     = bonoPieUF     * ufHoy;
+    const precioDeptoConDescuentoCLP = precioDeptoConDescuentoUF * ufHoy;
 
-    // === 2. Pipeline del precio de la UNIDAD ===
-    // publicado → base → con bono → final
-    const precioBase = calcularPrecioBase(precioPublicado, bonoImpl, descImpl);
-    const { precioConBono, bonoUf, precioFinal, descuentoUf } =
-      aplicarAjustesCotizador(precioBase, bonoPorc, descuentoPorc);
+    const result = {
+      // === Modelo canónico ===
+      precioListaUF,
+      descuentoPct,
+      precioDeptoConDescuentoUF,
+      estacionamientoUF,
+      bodegaUF,
+      precioFinalUF,
+      piePct,
+      pieUF,
+      bonoPiePct,
+      bonoPieUF,        // INFORMATIVO (sección 6 — NO entra al cuadre)
+      creditoUF,
+      caePct,
+      plazoAnios,
+      dividendoUF,
+      // === Conversiones CLP ===
+      ufHoy,
+      precioFinalCLP,
+      precioDeptoConDescuentoCLP,
+      pieCLP,
+      creditoCLP,
+      dividendoCLP,
+      bonoPieCLP,
+      // === Aliases backward-compat (sección 6) ===
+      pieBruto: pieUF,                  // mismo valor — no hay bruto/neto
+      pieNeto: pieUF,
+      pieNetoCLP: pieCLP,
+      precioEscrituraUF: precioFinalUF, // no existe "precio escritura" distinto
+      bonoCubrePie: false,              // siempre false en este modelo
+      bonoSobre: 'total'                // toggle eliminado
+    };
 
-    // Delta vs lo cargado en sistema (negativo = más barato que la lista)
-    const deltaVsPublicado = precioFinal - precioPublicado;
+    verificarInvariantes(result, input);
+    return Object.freeze(result);
+  }
 
-    // === 3. Adicionales (NO se afectan por bono/descuento) ===
-    const estTotalUf = estCant * estPrecio;
-    const bodTotalUf = bodCant * bodPrecio;
-    const precioTotalUf = precioFinal + estTotalUf + bodTotalUf;
+  /**
+   * Conveniencia para UI: acepta porcentajes en escala 0-100 y delega
+   * a `calcularInversion` (escala 0-1).
+   *
+   * Útil cuando los `<input type="number">` están en escala humana.
+   */
+  function calcularInversionFromPercent(input) {
+    return calcularInversion({
+      precioListaUF:     input.precioListaUF,
+      descuentoPct:      (input.descuentoPorc || 0) / 100,
+      estacionamientoUF: input.estacionamientoUF || 0,
+      bodegaUF:          input.bodegaUF || 0,
+      piePct:            (input.piePorc || 0) / 100,
+      bonoPiePct:        (input.bonoPiePorc || 0) / 100,
+      caePct:            (input.caePorc || 0) / 100,
+      plazoAnios:        input.plazoAnios,
+      ufHoy:             input.ufHoy || 0
+    });
+  }
 
-    // === 4. Pie ===
-    const pieTotalUf = precioTotalUf * (piePorc / 100);
-    // El bono pie se "devuelve" al cliente como rebaja sobre el pie
-    const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
-    const pieRealPorc = precioTotalUf > 0 ? (pieRealUf / precioTotalUf) * 100 : 0;
+  // ============================================================
+  // CRONOGRAMA DEL PIE (sección 8 — opcional)
+  // ============================================================
 
-    // === 5. Desglose del pie (upfront / cuotas / final) ===
-    const upfrontUf = precioTotalUf * (upfrontPorc / 100);
-    const cuotaFinalUf = precioTotalUf * (cuotaFinalPorc / 100);
-    const pieRestanteCuotas = pieRealUf - upfrontUf - cuotaFinalUf;
-    const pieCuotaMensualUf = cuotasN > 0 ? pieRestanteCuotas / cuotasN : 0;
+  /**
+   * Distribuye el pie en upfront + cuotas iguales + cuotón.
+   * Mantiene el cuadre:
+   *   reservaUF + upfrontUF + cuotonUF + (cuotaIgualUF × n) = pieUF
+   *
+   * @param {Object} opts
+   * @param {number} opts.precioFinalUF
+   * @param {number} opts.pieUF
+   * @param {number} opts.ufHoy
+   * @param {number} [opts.cuotasPie=0]    Total de actos (upfront + cuotas iguales + cuotón)
+   * @param {number} [opts.upfrontPct=0]   % del precio final como upfront [0, 1)
+   * @param {number} [opts.cuotonPct=0]    % del precio final como cuotón [0, 1)
+   * @param {number} [opts.reservaCLP=0]   Reserva en CLP (>= 0)
+   */
+  function calcularCronogramaPie(opts) {
+    const precioFinalUF = Number(opts.precioFinalUF) || 0;
+    const pieUF         = Number(opts.pieUF) || 0;
+    const ufHoy         = Number(opts.ufHoy) || 0;
+    const cuotasPie     = Math.max(0, Number(opts.cuotasPie) || 0);
+    const upfrontPct    = Math.max(0, Number(opts.upfrontPct) || 0);
+    const cuotonPct     = Math.max(0, Number(opts.cuotonPct) || 0);
+    const reservaCLP    = Math.max(0, Number(opts.reservaCLP) || 0);
 
-    // === 6. Crédito hipotecario ===
-    // Saldo a financiar = precio total - pie total (el bono NO afecta lo que financia el banco)
-    const saldoUf = precioTotalUf - pieTotalUf;
-    const divUf = calcularDividendoMensual(saldoUf, tasa, plazoMeses);
-    const pagoTotalCreditoUf = divUf * plazoMeses;
-    const pagoTotalUf = pieRealUf + pagoTotalCreditoUf;
-
-    // === 7. Conversiones a CLP ===
-    const precioFinalClp = precioFinal * ufClp;
-    const precioTotalClp = precioTotalUf * ufClp;
-    const pieRealClp = pieRealUf * ufClp;
-    const saldoClp = saldoUf * ufClp;
-    const divClp = divUf * ufClp;
-    const pagoTotalClp = pagoTotalUf * ufClp;
-
-    // === 8. Validaciones (no lanzan, retornan flags) ===
-    const errores = [];
-    const desglosePorc = upfrontPorc + cuotaFinalPorc;
-    if (cuotasN > 0 && pieCuotaMensualUf < 0) {
-      errores.push(
-        `Upfront (${upfrontPorc}%) + cuota final (${cuotaFinalPorc}%) = ${desglosePorc.toFixed(1)}% ` +
-        `excede el pie real (${pieRealPorc.toFixed(1)}%).`
-      );
+    if (upfrontPct + cuotonPct >= 1) {
+      throw new Error('CRITICAL: upfrontPct + cuotonPct debe ser < 1');
     }
-    if (cuotasN === 0 && desglosePorc > 0) {
-      const diff = pieRealPorc - desglosePorc;
-      if (Math.abs(diff) > 0.01) {
-        errores.push(
-          `Con 0 cuotas, upfront + cuota final (${desglosePorc.toFixed(1)}%) ` +
-          `debe igualar el pie real (${pieRealPorc.toFixed(1)}%). Diferencia: ${diff.toFixed(1)}%`
-        );
-      }
-    }
-    if (bonoUf > pieTotalUf) {
-      errores.push(
-        `Bono pie (UF ${roundUf(bonoUf)}) excede el pie total (UF ${roundUf(pieTotalUf)}). ` +
-        `Bajá el bono o subí el % de pie.`
-      );
-    }
+
+    const upfrontUF = precioFinalUF * upfrontPct;
+    const cuotonUF  = precioFinalUF * cuotonPct;
+    const reservaUF = ufHoy > 0 ? reservaCLP / ufHoy : 0;
+
+    const restaUpfront = upfrontUF > 0 ? 1 : 0;
+    const restaCuoton  = cuotonUF  > 0 ? 1 : 0;
+    const nCuotasIguales = Math.max(0, cuotasPie - restaUpfront - restaCuoton);
+
+    const pieRestante = Math.max(0, pieUF - reservaUF - upfrontUF - cuotonUF);
+    const cuotaIgualUF = nCuotasIguales > 0 ? pieRestante / nCuotasIguales : 0;
 
     return {
-      // Inputs (eco)
-      input: {
-        precioPublicadoUf: precioPublicado,
-        bonoImplicitoPorc: bonoImpl, descImplicitoPorc: descImpl,
-        bonoPorc, descuentoPorc,
-        estCant, estPrecioUf: estPrecio, bodCant, bodPrecioUf: bodPrecio,
-        piePorc, upfrontPorc, cuotasN, cuotaFinalPorc,
-        plazoMeses, tasaAnualPorc: tasa, ufClp
-      },
-      // Precio de la unidad
-      precioBaseUf: precioBase,
-      precioConBonoUf: precioConBono,
-      precioFinalUf: precioFinal,
-      bonoUf,
-      descuentoUf,
-      deltaVsPublicadoUf: deltaVsPublicado,
-      // Adicionales
-      estTotalUf, bodTotalUf,
-      // Precio total (unidad + adicionales)
-      precioTotalUf,
-      // Pie
-      pieTotalUf, pieRealUf, pieRealPorc,
-      upfrontUf, cuotaFinalUf, pieCuotaMensualUf,
-      // Crédito
-      saldoUf, divUf, pagoTotalUf, pagoTotalCreditoUf,
-      // CLP (conveniencias)
-      precioFinalClp, precioTotalClp, pieRealClp, saldoClp, divClp, pagoTotalClp,
-      // Validación
-      esValido: errores.length === 0,
-      errores
+      reservaUF,
+      upfrontUF,
+      cuotaIgualUF,
+      nCuotasIguales,
+      cuotonUF,
+      pieRestante,
+      // Verificación del cuadre del cronograma
+      cuadra: Math.abs(
+        (reservaUF + upfrontUF + cuotonUF + cuotaIgualUF * nCuotasIguales) - pieUF
+      ) < 0.01
     };
   }
 
   // ============================================================
-  // EXPORT (window.CotizadorMath)
+  // COSTOS DE CIERRE (sección 9 — línea informativa)
+  // ============================================================
+
+  /**
+   * Costos de cierre típicos en Chile. Se pagan al firmar escritura.
+   * NO se suman al crédito ni al pie — son línea aparte.
+   */
+  function calcularCostosCierre(precioFinalUF, creditoUF) {
+    const tasacionUF       = 3.0;
+    const estudioTitulosUF = 2.5;
+    const borradorUF       = 1.5;
+    const gestoriaUF       = 6.0;
+    const notariaUF        = (precioFinalUF || 0) * 0.003;
+    const cbrUF            = (precioFinalUF || 0) * 0.002;
+    const timbreUF         = (creditoUF || 0)     * 0.008;
+    const totalUF =
+      tasacionUF + estudioTitulosUF + borradorUF + gestoriaUF +
+      notariaUF + cbrUF + timbreUF;
+    return {
+      tasacionUF, estudioTitulosUF, borradorUF, gestoriaUF,
+      notariaUF, cbrUF, timbreUF,
+      totalUF
+    };
+  }
+
+  // ============================================================
+  // EXPORT
   // ============================================================
 
   global.CotizadorMath = {
-    // Primitivas
+    // API principal (spec textual, escala 0-1)
+    calcularInversion,
+    calcularInversionFromPercent,
+    // Bloques individuales (sección 4)
+    aplicarDescuentoDepto,
+    calcularPrecioFinal,
+    calcularPie,
+    calcularBonoPieInformativo,
+    calcularCredito,
+    calcularDividendo,
+    // Validación
+    validarInputs,
+    verificarInvariantes,
+    // Extras
+    calcularCronogramaPie,
+    calcularCostosCierre,
+    // Redondeo
     roundUf,
-    roundClp,
-    clampPorc,
-    // Bono pie
-    inflarPorBono,
-    quitarBonoImplicito,
-    // Descuento
-    aplicarDescuento,
-    quitarDescuentoImplicito,
-    // Cadena combinada
-    calcularPrecioBase,
-    aplicarAjustesCotizador,
-    // Crédito
-    calcularDividendoMensual,
-    // API alta
-    calcularCotizacion
+    roundClp
   };
 })(typeof window !== 'undefined' ? window : globalThis);
