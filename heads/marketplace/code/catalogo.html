@@ -356,6 +356,7 @@
 
 <script src="data/seeds.js"></script>
 <script src="data/repo.js"></script>
+<script src="data/cotizador-math.js"></script>
 <script src="assets/vendor/jspdf.umd.min.js"></script>
 <script>
 // =============================================================================
@@ -1363,103 +1364,59 @@ function renderCotizador(unidadId) {
 
   /**
    * Cálculo completo de la cotización con todos los inputs.
-   * Retorna objeto con todos los valores derivados.
+   * Toda la matemática vive en CotizadorMath (data/cotizador-math.js).
+   * Acá solo: (1) leer DOM, (2) invocar la función pura, (3) renderizar.
    */
   const recalc = () => {
     const num = (id) => Number(document.getElementById(id).value) || 0;
-    const precioUnidad = num('c-precio');
-    const estCant = num('c-est-cant');
-    const estPrecio = num('c-est-precio');
-    const bodCant = num('c-bod-cant');
-    const bodPrecio = num('c-bod-precio');
-    const piePorc = num('c-pie');
-    const bonoPorc = num('c-bono');
-    const descuentoPorc = num('c-descuento');
-    const upfrontPorc = num('c-upfront');
-    const cuotasN = num('c-cuotas-n');
-    const cuotaFinalPorc = num('c-cuota-final');
     const plazoAnios = num('c-plazo');
-    const plazo = plazoAnios * 12;   // meses internos para cálculo
-    const tasa = num('c-tasa');
-    const ufClp = DATA.ufReferencia.valor_clp;
+    const plazoMeses = plazoAnios * 12;
 
-    // Bono pie INFLA y descuento REDUCE el precio.
-    // Si el precio cargado ya incluye bono_implicito y/o descuento_implicito:
-    //   precio_sistema = precio_real × (1 + bono_impl%) × (1 - desc_impl%)
-    //   → precio_real = precio_sistema / (1 + bono_impl%) / (1 - desc_impl%)
-    // Aplicamos los inputs del cotizador sobre precio_real:
-    //   precio_con_bono = precio_real × (1 + bono_input%)
-    //   precio_final = precio_con_bono × (1 - desc_input%)
-    const bonoFactor = 1 + bonoImplicitoPorc / 100;
-    const descFactor = 1 - descImplicitoPorc / 100;
-    const precioUnidadBase = (bonoImplicitoPorc > 0 || descImplicitoPorc > 0)
-      ? precioUnidad / bonoFactor / descFactor
-      : precioUnidad;
-    const precioUnidadConBono = precioUnidadBase * (1 + bonoPorc / 100);
-    const bonoUf = precioUnidadConBono - precioUnidadBase;
-    // Descuento se aplica al precio ya con bono
-    const descuentoUf = precioUnidadConBono * (descuentoPorc / 100);
-    const precioUnidadFinal = precioUnidadConBono - descuentoUf;
-    // Delta vs precio cargado en sistema
-    const deltaVsImplicito = precioUnidadFinal - precioUnidad;
+    // 1. Llamada al motor de cálculo (todo en una sola pasada)
+    const c = window.CotizadorMath.calcularCotizacion({
+      precioPublicadoUf: num('c-precio'),
+      bonoImplicitoPorc, descImplicitoPorc,
+      bonoPorc:       num('c-bono'),
+      descuentoPorc:  num('c-descuento'),
+      estCant:        num('c-est-cant'),
+      estPrecioUf:    num('c-est-precio'),
+      bodCant:        num('c-bod-cant'),
+      bodPrecioUf:    num('c-bod-precio'),
+      piePorc:        num('c-pie'),
+      upfrontPorc:    num('c-upfront'),
+      cuotasN:        num('c-cuotas-n'),
+      cuotaFinalPorc: num('c-cuota-final'),
+      plazoMeses,
+      tasaAnualPorc:  num('c-tasa'),
+      ufClp:          DATA.ufReferencia.valor_clp
+    });
 
-    const estTotalUf = estCant * estPrecio;
-    const bodTotalUf = bodCant * bodPrecio;
-    // Adicionales NO se afectan por bono/descuento (solo la unidad principal)
-    const precioTotalUf = precioUnidadFinal + estTotalUf + bodTotalUf;
+    // Aliases legibles para el render
+    const {
+      precioBaseUf: precioUnidadBase,
+      precioConBonoUf: precioUnidadConBono,
+      precioFinalUf: precioUnidadFinal,
+      bonoUf, descuentoUf, deltaVsPublicadoUf: deltaVsImplicito,
+      estTotalUf, bodTotalUf, precioTotalUf,
+      pieTotalUf, pieRealUf, pieRealPorc,
+      upfrontUf, pieCuotaMensualUf, cuotaFinalUf,
+      saldoUf, divUf, pagoTotalUf
+    } = c;
+    const precioUnidad = c.input.precioPublicadoUf;
+    const { bonoPorc, descuentoPorc, piePorc, upfrontPorc,
+            cuotasN, cuotaFinalPorc, tasaAnualPorc: tasa, ufClp,
+            estCant, estPrecioUf: estPrecio, bodCant, bodPrecioUf: bodPrecio } = c.input;
 
-    // Pie y financiamiento se calculan sobre el precio total ya inflado
-    const pieTotalUf = precioTotalUf * (piePorc / 100);
-    // El bono se "devuelve" al cliente como rebaja del pie
-    const pieRealUf = Math.max(0, pieTotalUf - bonoUf);
-    const pieRealPorc = precioTotalUf > 0 ? (pieRealUf / precioTotalUf) * 100 : 0;
-
-    // Upfront y cuota final: porcentaje del precio total → UF
-    const upfrontUf = precioTotalUf * (upfrontPorc / 100);
-    const cuotaFinalUf = precioTotalUf * (cuotaFinalPorc / 100);
-
-    const pieRestanteCuotas = pieRealUf - upfrontUf - cuotaFinalUf;
-    let pieCuotaMensualUf = 0;
-    let validationErr = null;
-    const desglosePorc = upfrontPorc + cuotaFinalPorc;
-
-    if (cuotasN > 0) {
-      pieCuotaMensualUf = pieRestanteCuotas / cuotasN;
-      if (pieCuotaMensualUf < 0) {
-        validationErr = `Upfront (${upfrontPorc}%) + cuota final (${cuotaFinalPorc}%) = ${desglosePorc.toFixed(1)}% excede el pie real (${pieRealPorc.toFixed(1)}%).`;
-      }
-    } else if (cuotasN === 0 && desglosePorc > 0) {
-      // Sin cuotas → upfront + final deben coincidir con pieReal
-      const diffPorc = pieRealPorc - desglosePorc;
-      if (Math.abs(diffPorc) > 0.01) {
-        validationErr = `Con 0 cuotas, upfront + cuota final (${desglosePorc.toFixed(1)}%) debe igualar el pie real (${pieRealPorc.toFixed(1)}%). Diferencia: ${diffPorc.toFixed(1)}%`;
-      }
-    }
-
-    // Validación del bono: el bono UF (incremento del precio) no puede exceder al pie total
-    if (bonoUf > pieTotalUf) {
-      validationErr = (validationErr ? validationErr + ' ' : '') + `Bono pie (UF ${fmtUf(bonoUf)}) excede el pie total (UF ${fmtUf(pieTotalUf)}). Bajá el bono o subí el % de pie.`;
-    }
-
-    // Saldo a financiar = precio total - pie total (el bono NO afecta lo que se financia)
-    const saldoUf = precioTotalUf - pieTotalUf;
-    const divUf = saldoUf > 0 && tasa > 0 && plazo > 0
-      ? calcularDividendoFromSaldo(saldoUf, tasa, plazo)
-      : 0;
-    const pagoTotalUf = pieRealUf + (divUf * plazo);
-
-    // Render
+    // 2. Render
     const rEl = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
     // Label compacto que muestra el precio final + delta vs lista
     let unidadLabel;
     if (Math.abs(deltaVsImplicito) < 0.01) {
-      // Precio final coincide con lo cargado en sistema
       const ajustes = [];
       if (bonoImplicitoPorc > 0) ajustes.push(`bono ${bonoImplicitoPorc}% incluido`);
       if (descImplicitoPorc > 0) ajustes.push(`descuento ${descImplicitoPorc}% incluido`);
       unidadLabel = `UF ${fmtUf(precioUnidadFinal)}${ajustes.length ? ' (' + ajustes.join(', ') + ')' : ''}`;
     } else {
-      // Diferencia vs sistema
       const signo = deltaVsImplicito > 0 ? '+' : '−';
       const magnitud = Math.abs(deltaVsImplicito);
       const ajustes = [];
@@ -1498,12 +1455,13 @@ function renderCotizador(unidadId) {
     }
 
     rEl('r-saldo', `UF ${fmtUf(saldoUf)} (~$ ${fmtClp(saldoUf * ufClp)})`);
-    rEl('r-plazo', `${plazoAnios} años (${plazo} meses)`);
+    rEl('r-plazo', `${plazoAnios} años (${plazoMeses} meses)`);
     rEl('r-tasa', `${tasa}% CAE`);
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
     rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
 
-    // Validación visual
+    // Validación visual (errores acumulados del motor)
+    const validationErr = c.errores.join(' ');
     const valBox = document.getElementById('cot-pie-validation');
     if (validationErr) {
       valBox.innerHTML = `<div class="cot-validation">⚠ ${validationErr}</div>`;
@@ -1519,8 +1477,8 @@ function renderCotizador(unidadId) {
       piePorc, bonoPorc, bonoUf, descuentoPorc, descuentoUf,
       pieTotalUf, pieRealUf, pieRealPorc,
       upfrontPorc, upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalPorc, cuotaFinalUf,
-      saldoUf, plazo, plazoAnios, tasa, divUf, pagoTotalUf, ufClp,
-      isValid: !validationErr,
+      saldoUf, plazo: plazoMeses, plazoAnios, tasa, divUf, pagoTotalUf, ufClp,
+      isValid: c.esValido,
       validationErr
     };
   };
@@ -2377,10 +2335,12 @@ async function generarPdfCotizacion(cotizacionId) {
   const estTotalUf = estCant * estPrecio;
   const bodTotalUf = bodCant * bodPrecio;
   const precioTotalUf = cot.precio_total_uf || cot.precio_uf;
-  // Bono pie: ahora se persiste como % (con UF derivado como snapshot)
-  // Fallback para cotizaciones legacy que tenían solo bono_pie_uf
+  // Bono pie: el bono real se recalcula con la fórmula nueva (precioInflado * bono%)
+  // El precio_unidad_con_bono_uf YA incluye el efecto del bono.
   const bonoPorc = cot.bono_pie_porcentaje != null ? cot.bono_pie_porcentaje : 0;
-  const bonoUf = cot.bono_pie_uf || (bonoPorc > 0 ? (cot.precio_total_uf || cot.precio_uf) * bonoPorc / 100 : 0);
+  const bonoUf = cot.bono_pie_uf || (bonoPorc > 0
+    ? (cot.precio_unidad_con_bono_uf || cot.precio_uf) * bonoPorc / 100
+    : 0);
   const upfrontPorc = cot.pie_upfront_porcentaje != null ? cot.pie_upfront_porcentaje : null;
   const upfrontUf = cot.pie_upfront_uf || 0;
   const cuotasN = cot.pie_cuotas_n || 0;
