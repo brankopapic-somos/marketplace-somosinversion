@@ -1342,6 +1342,10 @@ function renderCotizador(unidadId) {
           <div class="cot-sub" id="r-upfront">·</div>
           <div class="cot-sub" id="r-cuotas">·</div>
           <div class="cot-sub" id="r-cuota-final">·</div>
+          <div class="cot-result-row" id="r-cuotas-total-wrap" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;font-size:12px;">
+            <span style="color:#475569;">Total pagado en cuotas pie</span>
+            <strong id="r-cuotas-total" style="color:#1A2744;">—</strong>
+          </div>
         </div>
 
         <div style="margin-top:14px;">
@@ -1354,7 +1358,12 @@ function renderCotizador(unidadId) {
           <span>Dividendo mensual</span><strong id="r-div">—</strong>
         </div>
 
-        <div class="cot-result-row bold"><span>Total a pagar (con intereses)</span><strong id="r-pago-total">—</strong></div>
+        <div class="cot-result-row" style="font-size:12px;color:#475569;">
+          <span id="r-div-total-label">Total pagado en dividendos</span>
+          <strong id="r-div-total" style="color:#1A2744;">—</strong>
+        </div>
+
+        <div class="cot-result-row bold"><span>Total a pagar (pie + intereses)</span><strong id="r-pago-total">—</strong></div>
 
         <div style="margin-top:14px;padding:10px 12px;background:#fff;border-radius:6px;font-size:11px;color:#6b7280;line-height:1.5;">
           <strong>Aviso:</strong> Cálculo referencial · amortización francesa · sujeto a evaluación bancaria.
@@ -1478,17 +1487,31 @@ function renderCotizador(unidadId) {
         ? `· Cuota inicial (al firmar): ${upfrontPorc}% = UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})`
         : '· Cuota inicial: —');
       rEl('r-cuotas', cuotasN > 0
-        ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes — total ${cuotasPorcEfectivo.toFixed(1)}% = UF ${fmtUf(cuotasUf)})`
+        ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes)`
         : '· Cuotas: —');
       rEl('r-cuota-final', cuotaFinalPorc > 0
         ? `· Cuota final (al escriturar): ${cuotaFinalPorc}% = UF ${fmtUf(cuotaFinalUf)} (~$ ${fmtClp(cuotaFinalUf*ufClp)})`
         : '· Cuota final: —');
+      // Total pagado en cuotas pie (visible solo si hay cuotas)
+      const cuotasTotalWrap = document.getElementById('r-cuotas-total-wrap');
+      if (cuotasN > 0 && pieCuotaMensualUf > 0) {
+        cuotasTotalWrap.style.display = 'flex';
+        rEl('r-cuotas-total', `${cuotasN} × UF ${fmtUf(pieCuotaMensualUf)} = UF ${fmtUf(cuotasUf)} (~$ ${fmtClp(cuotasUf * ufClp)})`);
+      } else {
+        cuotasTotalWrap.style.display = 'none';
+      }
     }
 
     rEl('r-saldo', `UF ${fmtUf(saldoUf)} (~$ ${fmtClp(saldoUf * ufClp)})`);
     rEl('r-plazo', `${plazoAnios} años (${plazoMeses} meses)`);
     rEl('r-tasa', `${tasa}% CAE`);
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
+    // Total pagado en dividendos del crédito (sumando todas las cuotas mensuales)
+    const dividendoTotalUf = divUf * plazoMeses;
+    rEl('r-div-total-label', `Total pagado en dividendos (× ${plazoMeses} meses)`);
+    rEl('r-div-total', divUf > 0
+      ? `UF ${fmtUf(dividendoTotalUf)} (~$ ${fmtClp(dividendoTotalUf * ufClp)})`
+      : '—');
     rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
 
     // === Resumen del cuadre del pie en vivo ===
