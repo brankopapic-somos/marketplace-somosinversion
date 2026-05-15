@@ -320,19 +320,21 @@
     // Si las condiciones de pie están desglosadas, su suma debería igualar pieReal%
     const cuotasPorcParaSuma = cuotasPorc > 0 ? cuotasPorc : cuotasPorcEfectivo;
     const desglosePorc = upfrontPorc + cuotasPorcParaSuma + cuotaFinalPorc;
-    if (cuotasN > 0 && pieCuotaMensualUf < 0) {
-      errores.push(
-        `Cuota inicial (${upfrontPorc}%) + cuotas (${cuotasPorcParaSuma.toFixed(1)}%) + final (${cuotaFinalPorc}%) ` +
-        `= ${desglosePorc.toFixed(1)}% excede el pie real (${pieRealPorc.toFixed(1)}%).`
-      );
-    }
-    // En modo explícito (cuotasPorc>0): verificar coherencia con pieReal%
-    if (cuotasPorc > 0 || (upfrontPorc + cuotaFinalPorc > 0 && cuotasN > 0)) {
+    const sumHasComponentes = cuotasPorc > 0 || (upfrontPorc + cuotaFinalPorc > 0 && cuotasN > 0);
+    if (sumHasComponentes) {
       const diff = desglosePorc - pieRealPorc;
-      if (Math.abs(diff) > 0.5) {
+      if (diff > 0.5) {
+        // EXCEDE claramente el pie real → error bloqueante
+        errores.push(
+          `Cuota inicial (${upfrontPorc}%) + cuotas (${cuotasPorcParaSuma.toFixed(1)}%) + final (${cuotaFinalPorc}%) ` +
+          `= ${desglosePorc.toFixed(1)}% excede el pie real (${pieRealPorc.toFixed(1)}%). ` +
+          `Bajá alguna componente o subí el % de pie.`
+        );
+      } else if (Math.abs(diff) > 0.5) {
+        // NO LLEGA al pie real → advertencia (no bloqueante)
         advertencias.push(
           `Inicial (${upfrontPorc}%) + cuotas (${cuotasPorcParaSuma.toFixed(1)}%) + final (${cuotaFinalPorc}%) ` +
-          `= ${desglosePorc.toFixed(1)}% ${diff > 0 ? 'excede' : 'no llega'} al pie real (${pieRealPorc.toFixed(1)}%). ` +
+          `= ${desglosePorc.toFixed(1)}% no llega al pie real (${pieRealPorc.toFixed(1)}%). ` +
           `Diferencia: ${Math.abs(diff).toFixed(1)}%`
         );
       }

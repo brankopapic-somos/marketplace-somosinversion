@@ -1508,7 +1508,9 @@ function renderCotizador(unidadId) {
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
     // Total pagado en dividendos del crédito (sumando todas las cuotas mensuales)
     const dividendoTotalUf = divUf * plazoMeses;
-    rEl('r-div-total-label', `Total pagado en dividendos (× ${plazoMeses} meses)`);
+    rEl('r-div-total-label', divUf > 0
+      ? `Total pagado en dividendos (× ${plazoMeses} meses)`
+      : 'Total pagado en dividendos');
     rEl('r-div-total', divUf > 0
       ? `UF ${fmtUf(dividendoTotalUf)} (~$ ${fmtClp(dividendoTotalUf * ufClp)})`
       : '—');
