@@ -693,26 +693,6 @@
     // Vigencia default: 30 días
     const validaHasta = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    // === MODELO CANÓNICO (Lógica Financiera Chile) ===
-    // Campos primarios siguen la nomenclatura de la spec.
-    // Aliases legacy se mantienen para compat con renderers antiguos.
-    const precio_lista_uf            = Number(data.precio_lista_uf  || data.precio_unidad_base_uf || unidad.precio_uf);
-    const descuento_pct              = Number(data.descuento_pct    || (Number(data.descuento_porcentaje || 0) / 100));
-    const estacionamiento_uf         = Number(data.estacionamiento_uf || ((Number(data.estacionamiento_cant) || 0) * (Number(data.estacionamiento_precio_uf) || 0)));
-    const bodega_uf                  = Number(data.bodega_uf          || ((Number(data.bodega_cant) || 0) * (Number(data.bodega_precio_uf) || 0)));
-    const precio_depto_con_descuento_uf =
-      Number(data.precio_depto_con_descuento_uf || (precio_lista_uf * (1 - descuento_pct)));
-    const precio_final_uf            =
-      Number(data.precio_final_uf || (precio_depto_con_descuento_uf + estacionamiento_uf + bodega_uf));
-    const pie_pct                    = Number(data.pie_pct || (Number(data.pie_porcentaje || 0) / 100));
-    const pie_uf                     = Number(data.pie_uf  || (precio_final_uf * pie_pct));
-    const bono_pie_pct               = Number(data.bono_pie_pct || (Number(data.bono_pie_porcentaje || 0) / 100));
-    const bono_pie_uf                = Number(data.bono_pie_uf  || (precio_final_uf * bono_pie_pct));   // INFORMATIVO
-    const credito_uf                 = Number(data.credito_uf  || (precio_final_uf - pie_uf));
-    const cae_pct                    = Number(data.cae_pct     || (Number(data.tasa_anual || 0) / 100));
-    const plazo_anios                = Number(data.plazo_anios || (Number(data.plazo_meses || 0) / 12));
-    const dividendo_uf               = Number(data.dividendo_uf || 0);
-
     const cot = {
       id: uid("q"),
       referencia: nextReferenciaCotizacion(),
@@ -721,53 +701,29 @@
       unidad_id: data.unidad_id,
       proyecto_id: unidad.proyecto_id,
 
-      // === CAMPOS CANÓNICOS (spec) ===
-      precio_lista_uf,
-      descuento_pct,
-      precio_depto_con_descuento_uf,
-      estacionamiento_uf,
-      bodega_uf,
-      precio_final_uf,
-      pie_pct,
-      pie_uf,
-      bono_pie_pct,
-      bono_pie_uf,              // INFORMATIVO (no entra al cuadre)
-      credito_uf,
-      cae_pct,
-      plazo_anios,
-      plazo_meses: Number(data.plazo_meses) || plazo_anios * 12,
-      dividendo_uf,
-      uf_referencia: Number(data.uf_referencia || data.ufHoy || 0),
+      // Snapshot precio unidad
+      precio_uf: Number(unidad.precio_uf),
 
-      // === ALIASES BACKWARD-COMPAT (spec sección 6 + renderers legacy) ===
-      precio_uf: precio_lista_uf,                              // legacy snapshot
-      precio_unidad_base_uf: precio_lista_uf,
-      precio_unidad_con_bono_uf: precio_depto_con_descuento_uf, // no hay "con bono" en modelo nuevo
-      precio_unidad_final_uf: precio_depto_con_descuento_uf,
-      precio_total_uf: precio_final_uf,
-      pie_porcentaje: Number(data.pie_porcentaje || pie_pct * 100),
-      bono_pie_porcentaje: Number(data.bono_pie_porcentaje || bono_pie_pct * 100),
-      bono_pie_implicito_porcentaje: 0,
-      descuento_porcentaje: Number(data.descuento_porcentaje || descuento_pct * 100),
-      descuento_uf: Number(data.descuento_uf || (precio_lista_uf * descuento_pct)),
-      descuento_implicito_porcentaje: 0,
-      delta_vs_implicito_uf: 0,
-      tasa_anual: Number(data.tasa_anual || cae_pct * 100),
-      // Aliases sección 6
-      pie_bruto_uf: pie_uf,
-      pie_neto_uf: pie_uf,
-      pie_neto_clp: Math.round(pie_uf * (Number(data.uf_referencia) || 0)),
-      precio_escritura_uf: precio_final_uf,
-      bono_cubre_pie: false,
-      bono_sobre: 'total',
-
-      // === Adicionales (UI legacy) ===
+      // Adicionales (UF cada uno)
       estacionamiento_cant: Number(data.estacionamiento_cant || 0),
       estacionamiento_precio_uf: Number(data.estacionamiento_precio_uf || 0),
       bodega_cant: Number(data.bodega_cant || 0),
       bodega_precio_uf: Number(data.bodega_precio_uf || 0),
+      precio_unidad_base_uf: Number(data.precio_unidad_base_uf || unidad.precio_uf),
+      precio_unidad_con_bono_uf: Number(data.precio_unidad_con_bono_uf || unidad.precio_uf),
+      precio_unidad_final_uf: Number(data.precio_unidad_final_uf || data.precio_unidad_con_bono_uf || unidad.precio_uf),
+      precio_total_uf: Number(data.precio_total_uf || unidad.precio_uf),
 
-      // === Cronograma del pie (spec sección 8) ===
+      // Pie
+      pie_porcentaje: Number(data.pie_porcentaje),
+      bono_pie_porcentaje: Number(data.bono_pie_porcentaje || 0),
+      bono_pie_uf: Number(data.bono_pie_uf || 0),
+      bono_pie_implicito_porcentaje: Number(data.bono_pie_implicito_porcentaje || 0),
+      // Descuento
+      descuento_porcentaje: Number(data.descuento_porcentaje || 0),
+      descuento_uf: Number(data.descuento_uf || 0),
+      descuento_implicito_porcentaje: Number(data.descuento_implicito_porcentaje || 0),
+      delta_vs_implicito_uf: Number(data.delta_vs_implicito_uf || 0),
       pie_upfront_porcentaje: Number(data.pie_upfront_porcentaje || 0),
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
       pie_cuotas_n: Number(data.pie_cuotas_n || 0),
@@ -775,18 +731,20 @@
       pie_cuota_final_porcentaje: Number(data.pie_cuota_final_porcentaje || 0),
       pie_cuota_final_uf: Number(data.pie_cuota_final_uf || 0),
 
-      // === Outputs CLP ===
-      dividendo_estimado_clp: Math.round(Number(data.dividendo_estimado_clp || (dividendo_uf * (Number(data.uf_referencia) || 0)))),
-      total_clp: Math.round(Number(data.total_clp || 0)),
+      // Crédito
+      plazo_anios: Number(data.plazo_anios || (Number(data.plazo_meses) / 12)),
+      plazo_meses: Number(data.plazo_meses),
+      tasa_anual: Number(data.tasa_anual),
+
+      // Referencia
+      uf_referencia: Number(data.uf_referencia),
+
+      // Outputs
+      dividendo_estimado_clp: Math.round(Number(data.dividendo_estimado_clp)),
+      total_clp: Math.round(Number(data.total_clp)),
       valida_hasta: validaHasta,
       created_at: nowIso()
     };
-
-    // Verificación de invariantes en persistencia (defensa en profundidad)
-    if (window.CotizadorMath && Math.abs((pie_uf + credito_uf) - precio_final_uf) > 0.01) {
-      throw new Error(`CRITICAL I1: pie(${pie_uf}) + credito(${credito_uf}) != precioFinal(${precio_final_uf})`);
-    }
-
     window.DATA.cotizaciones.push(cot);
 
     // Notificación al admin: cotización generada
