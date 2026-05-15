@@ -727,6 +727,9 @@
       pie_upfront_porcentaje: Number(data.pie_upfront_porcentaje || 0),
       pie_upfront_uf: Number(data.pie_upfront_uf || 0),
       pie_cuotas_n: Number(data.pie_cuotas_n || 0),
+      pie_cuotas_porcentaje: Number(data.pie_cuotas_porcentaje || 0),
+      pie_cuotas_porcentaje_efectivo: Number(data.pie_cuotas_porcentaje_efectivo || 0),
+      pie_cuotas_uf: Number(data.pie_cuotas_uf || 0),
       pie_cuota_mensual_uf: Number(data.pie_cuota_mensual_uf || 0),
       pie_cuota_final_porcentaje: Number(data.pie_cuota_final_porcentaje || 0),
       pie_cuota_final_uf: Number(data.pie_cuota_final_uf || 0),
@@ -1967,6 +1970,11 @@
             precio_uf_max: nd.precio_uf_max || 999,
             bono_pie_implicito_porcentaje: Number(nd.bono_pie_implicito_porcentaje) || 0,
             descuento_implicito_porcentaje: Number(nd.descuento_implicito_porcentaje) || 0,
+            pie_porcentaje: Number(nd.pie_porcentaje) || 20,
+            pie_upfront_porcentaje: Number(nd.pie_upfront_porcentaje) || 0,
+            pie_cuotas_porcentaje: Number(nd.pie_cuotas_porcentaje) || 0,
+            pie_cuotas_n: Number(nd.pie_cuotas_n) || 0,
+            pie_cuota_final_porcentaje: Number(nd.pie_cuota_final_porcentaje) || 0,
             tipologias_disponibles: [],
             estado_negocio: "activo",
             estado_ingesta: "ok"
@@ -2349,6 +2357,16 @@
       precio_uf_min: Number(p.precio_uf_min),
       precio_uf_max: Number(p.precio_uf_max),
       pie_porcentaje: p.pie_porcentaje ? Number(p.pie_porcentaje) : null,
+      // Condiciones de pie (defaults a nivel proyecto — editables en cotizador)
+      // Suma esperada: upfront + cuotas + cuota_final == pie_porcentaje
+      pie_upfront_porcentaje: p.pie_upfront_porcentaje
+        ? Number(p.pie_upfront_porcentaje) : 0,
+      pie_cuotas_n: p.pie_cuotas_n
+        ? Number(p.pie_cuotas_n) : 0,
+      pie_cuotas_porcentaje: p.pie_cuotas_porcentaje
+        ? Number(p.pie_cuotas_porcentaje) : 0,
+      pie_cuota_final_porcentaje: p.pie_cuota_final_porcentaje
+        ? Number(p.pie_cuota_final_porcentaje) : 0,
       bono_pie_implicito_porcentaje: p.bono_pie_implicito_porcentaje
         ? Number(p.bono_pie_implicito_porcentaje) : 0,
       descuento_implicito_porcentaje: p.descuento_implicito_porcentaje
@@ -2506,6 +2524,26 @@
       if (isNaN(di) || di < 0 || di > 50)
         errs.push("descuento_implicito_porcentaje fuera de rango (0-50)");
     }
+    // Condiciones de pie — todos 0-100, cuotas n entero 0-120
+    const condicionesPieFields = [
+      ['pie_upfront_porcentaje',     'pago inicial', 0, 100],
+      ['pie_cuotas_porcentaje',      'cuotas pie',   0, 100],
+      ['pie_cuota_final_porcentaje', 'cuota final',  0, 100]
+    ];
+    condicionesPieFields.forEach(([key, label, min, max]) => {
+      if (p[key] !== undefined && p[key] !== null && p[key] !== '') {
+        const v = Number(p[key]);
+        if (isNaN(v) || v < min || v > max)
+          errs.push(`${key} (${label}) fuera de rango (${min}-${max})`);
+      }
+    });
+    if (p.pie_cuotas_n !== undefined && p.pie_cuotas_n !== null && p.pie_cuotas_n !== '') {
+      const v = Number(p.pie_cuotas_n);
+      if (isNaN(v) || v < 0 || v > 120 || !Number.isInteger(v))
+        errs.push('pie_cuotas_n debe ser entero 0-120');
+    }
+    // Coherencia: si están definidos los 4, su suma debería ser ≈ pie_porcentaje (warning blando)
+    // No bloqueamos — la inmobiliaria puede definir solo un subset.
     return errs;
   }
 

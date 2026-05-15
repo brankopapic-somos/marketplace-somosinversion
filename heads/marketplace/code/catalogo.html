@@ -1167,6 +1167,12 @@ function renderCotizador(unidadId) {
   const bodPrecioDefault = 80;    // UF bodega (referencial)
   const estCantDefault = u.estacionamiento_incluido || 0;
   const bodCantDefault = u.bodega_incluida || 0;
+  // Condiciones del pie definidas a nivel proyecto (defaults editables en el cotizador)
+  const upfrontPorcDefault   = Number(p.pie_upfront_porcentaje) || 0;
+  const cuotasPorcDefault    = Number(p.pie_cuotas_porcentaje) || 0;
+  const cuotasNDefault       = Number(p.pie_cuotas_n) || 0;
+  const cuotaFinalPorcDefault = Number(p.pie_cuota_final_porcentaje) || 0;
+  const hasCondicionesPie = upfrontPorcDefault > 0 || cuotasNDefault > 0 || cuotaFinalPorcDefault > 0;
   // Bono pie implícito: % ya incluido en u.precio_uf según configuración del proyecto
   const bonoImplicitoPorc = Number(p.bono_pie_implicito_porcentaje) || 0;
   const bonoDefault = bonoImplicitoPorc;
@@ -1252,17 +1258,29 @@ function renderCotizador(unidadId) {
               ${descImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--color-danger);margin-top:4px;line-height:1.3;">⚠ Implícito en precio: <strong>${descImplicitoPorc}%</strong>. Si bajás → precio sube. Si subís → mayor descuento.</div>` : ''}
             </div>
             <div class="cot-field">
-              <label>Pago inicial (%)</label>
-              <input type="number" id="c-upfront" value="0" min="0" max="100" step="0.1">
+              <label>Cuota inicial (%) <span style="font-weight:400;color:#9ca3af;">al firmar</span></label>
+              <input type="number" id="c-upfront" value="${upfrontPorcDefault}" min="0" max="100" step="0.1">
             </div>
             <div class="cot-field">
-              <label>Cantidad de cuotas pie</label>
-              <input type="number" id="c-cuotas-n" value="0" min="0" max="60" step="1">
+              <label>% pie en cuotas <span style="font-weight:400;color:#9ca3af;">mensual</span></label>
+              <input type="number" id="c-cuotas-porcentaje" value="${cuotasPorcDefault}" min="0" max="100" step="0.1">
             </div>
-            <div class="cot-field" style="grid-column:1 / -1;">
-              <label>Cuota final (%)</label>
-              <input type="number" id="c-cuota-final" value="0" min="0" max="100" step="0.1">
+            <div class="cot-field">
+              <label>N° cuotas pie</label>
+              <input type="number" id="c-cuotas-n" value="${cuotasNDefault}" min="0" max="120" step="1">
             </div>
+            <div class="cot-field">
+              <label>Cuota final (%) <span style="font-weight:400;color:#9ca3af;">al escriturar</span></label>
+              <input type="number" id="c-cuota-final" value="${cuotaFinalPorcDefault}" min="0" max="100" step="0.1">
+            </div>
+            ${hasCondicionesPie ? `
+            <div class="cot-field" style="grid-column:1 / -1;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:4px;padding:6px 10px;">
+              <div style="font-size:11px;color:#1e40af;line-height:1.4;">
+                ℹ Condiciones de pie precargadas desde el proyecto <strong>${p.nombre}</strong>:
+                ${upfrontPorcDefault > 0 ? `cuota inicial ${upfrontPorcDefault}%` : ''}${cuotasNDefault > 0 ? ` · ${cuotasNDefault} cuotas (${cuotasPorcDefault}%)` : ''}${cuotaFinalPorcDefault > 0 ? ` · final ${cuotaFinalPorcDefault}%` : ''}.
+                Podés ajustarlas para este cliente.
+              </div>
+            </div>` : ''}
           </div>
           <div id="cot-pie-validation"></div>
         </div>
@@ -1385,6 +1403,7 @@ function renderCotizador(unidadId) {
       piePorc:        num('c-pie'),
       upfrontPorc:    num('c-upfront'),
       cuotasN:        num('c-cuotas-n'),
+      cuotasPorc:     num('c-cuotas-porcentaje'),
       cuotaFinalPorc: num('c-cuota-final'),
       plazoMeses,
       tasaAnualPorc:  num('c-tasa'),
@@ -1399,12 +1418,12 @@ function renderCotizador(unidadId) {
       bonoUf, descuentoUf, deltaVsPublicadoUf: deltaVsImplicito,
       estTotalUf, bodTotalUf, precioTotalUf,
       pieTotalUf, pieRealUf, pieRealPorc,
-      upfrontUf, pieCuotaMensualUf, cuotaFinalUf,
+      upfrontUf, cuotasUf, cuotasPorcEfectivo, pieCuotaMensualUf, cuotaFinalUf,
       saldoUf, divUf, pagoTotalUf
     } = c;
     const precioUnidad = c.input.precioPublicadoUf;
     const { bonoPorc, descuentoPorc, piePorc, upfrontPorc,
-            cuotasN, cuotaFinalPorc, tasaAnualPorc: tasa, ufClp,
+            cuotasN, cuotasPorc, cuotaFinalPorc, tasaAnualPorc: tasa, ufClp,
             estCant, estPrecioUf: estPrecio, bodCant, bodPrecioUf: bodPrecio } = c.input;
 
     // 2. Render
@@ -1444,10 +1463,10 @@ function renderCotizador(unidadId) {
     desgEl.style.display = hasDesglose ? 'block' : 'none';
     if (hasDesglose) {
       rEl('r-upfront', upfrontPorc > 0
-        ? `· Pago inicial (al firmar): ${upfrontPorc}% = UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})`
-        : '· Pago inicial: —');
+        ? `· Cuota inicial (al firmar): ${upfrontPorc}% = UF ${fmtUf(upfrontUf)} (~$ ${fmtClp(upfrontUf*ufClp)})`
+        : '· Cuota inicial: —');
       rEl('r-cuotas', cuotasN > 0
-        ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes)`
+        ? `· ${cuotasN} cuotas pie sin interés × UF ${fmtUf(pieCuotaMensualUf)} (~$ ${fmtClp(pieCuotaMensualUf*ufClp)}/mes — total ${cuotasPorcEfectivo.toFixed(1)}% = UF ${fmtUf(cuotasUf)})`
         : '· Cuotas: —');
       rEl('r-cuota-final', cuotaFinalPorc > 0
         ? `· Cuota final (al escriturar): ${cuotaFinalPorc}% = UF ${fmtUf(cuotaFinalUf)} (~$ ${fmtClp(cuotaFinalUf*ufClp)})`
@@ -1460,14 +1479,18 @@ function renderCotizador(unidadId) {
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
     rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
 
-    // Validación visual (errores acumulados del motor)
+    // Validación visual (errores + advertencias del motor)
     const validationErr = c.errores.join(' ');
+    const advert = (c.advertencias || []).join(' ');
     const valBox = document.getElementById('cot-pie-validation');
+    let validationHtml = '';
     if (validationErr) {
-      valBox.innerHTML = `<div class="cot-validation">⚠ ${validationErr}</div>`;
-    } else {
-      valBox.innerHTML = '';
+      validationHtml += `<div class="cot-validation">⚠ ${validationErr}</div>`;
     }
+    if (advert) {
+      validationHtml += `<div class="cot-validation" style="background:#fffbeb;color:#92400e;border-left-color:var(--brand-secondary);">⚠ ${advert}</div>`;
+    }
+    valBox.innerHTML = validationHtml;
 
     lastCalc = {
       precioUnidad, precioUnidadBase, precioUnidadConBono, precioUnidadFinal,
@@ -1476,7 +1499,8 @@ function renderCotizador(unidadId) {
       estTotalUf, bodTotalUf, precioTotalUf,
       piePorc, bonoPorc, bonoUf, descuentoPorc, descuentoUf,
       pieTotalUf, pieRealUf, pieRealPorc,
-      upfrontPorc, upfrontUf, cuotasN, pieCuotaMensualUf, cuotaFinalPorc, cuotaFinalUf,
+      upfrontPorc, upfrontUf, cuotasN, cuotasPorc, cuotasPorcEfectivo, cuotasUf,
+      pieCuotaMensualUf, cuotaFinalPorc, cuotaFinalUf,
       saldoUf, plazo: plazoMeses, plazoAnios, tasa, divUf, pagoTotalUf, ufClp,
       isValid: c.esValido,
       validationErr
@@ -1485,7 +1509,7 @@ function renderCotizador(unidadId) {
 
   // Wire inputs
   const inputIds = ['c-est-cant','c-est-precio','c-bod-cant','c-bod-precio',
-                    'c-pie','c-bono','c-descuento','c-upfront','c-cuotas-n','c-cuota-final',
+                    'c-pie','c-bono','c-descuento','c-upfront','c-cuotas-n','c-cuotas-porcentaje','c-cuota-final',
                     'c-plazo','c-tasa'];
   inputIds.forEach(id => document.getElementById(id).addEventListener('input', recalc));
   recalc();
@@ -1946,6 +1970,9 @@ function modalAsignarCotizacion(unidad, calc) {
         pie_upfront_porcentaje: calc.upfrontPorc,
         pie_upfront_uf: calc.upfrontUf,
         pie_cuotas_n: calc.cuotasN,
+        pie_cuotas_porcentaje: calc.cuotasPorc,
+        pie_cuotas_porcentaje_efectivo: calc.cuotasPorcEfectivo,
+        pie_cuotas_uf: calc.cuotasUf,
         pie_cuota_mensual_uf: calc.pieCuotaMensualUf,
         pie_cuota_final_porcentaje: calc.cuotaFinalPorc,
         pie_cuota_final_uf: calc.cuotaFinalUf,

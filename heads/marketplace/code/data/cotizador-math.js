@@ -257,6 +257,10 @@
     const piePorc = Number(i.piePorc) || 0;
     const upfrontPorc = Number(i.upfrontPorc) || 0;
     const cuotasN = Number(i.cuotasN) || 0;
+    // cuotasPorc: % del precio total distribuido en N cuotas.
+    // Si se especifica > 0, se usa directamente (modo explícito).
+    // Si es 0, se DERIVA del pie restante (modo legacy/auto).
+    const cuotasPorc = Number(i.cuotasPorc) || 0;
     const cuotaFinalPorc = Number(i.cuotaFinalPorc) || 0;
 
     const plazoMeses = Number(i.plazoMeses) || 0;
@@ -286,8 +290,14 @@
     // === 5. Desglose del pie (upfront / cuotas / final) ===
     const upfrontUf = precioTotalUf * (upfrontPorc / 100);
     const cuotaFinalUf = precioTotalUf * (cuotaFinalPorc / 100);
-    const pieRestanteCuotas = pieRealUf - upfrontUf - cuotaFinalUf;
-    const pieCuotaMensualUf = cuotasN > 0 ? pieRestanteCuotas / cuotasN : 0;
+    // cuotasUf: si cuotasPorc viene explícito (>0), se usa.
+    //           Si no, se deriva de lo que sobra del pie real.
+    const cuotasUfExplicito = precioTotalUf * (cuotasPorc / 100);
+    const cuotasUf = cuotasPorc > 0
+      ? cuotasUfExplicito
+      : Math.max(0, pieRealUf - upfrontUf - cuotaFinalUf);
+    const pieCuotaMensualUf = cuotasN > 0 ? cuotasUf / cuotasN : 0;
+    const cuotasPorcEfectivo = precioTotalUf > 0 ? (cuotasUf / precioTotalUf) * 100 : 0;
 
     // === 6. Crédito hipotecario ===
     // Saldo a financiar = precio total - pie total (el bono NO afecta lo que financia el banco)
@@ -306,18 +316,33 @@
 
     // === 8. Validaciones (no lanzan, retornan flags) ===
     const errores = [];
-    const desglosePorc = upfrontPorc + cuotaFinalPorc;
+    const advertencias = [];
+    // Si las condiciones de pie están desglosadas, su suma debería igualar pieReal%
+    const cuotasPorcParaSuma = cuotasPorc > 0 ? cuotasPorc : cuotasPorcEfectivo;
+    const desglosePorc = upfrontPorc + cuotasPorcParaSuma + cuotaFinalPorc;
     if (cuotasN > 0 && pieCuotaMensualUf < 0) {
       errores.push(
-        `Upfront (${upfrontPorc}%) + cuota final (${cuotaFinalPorc}%) = ${desglosePorc.toFixed(1)}% ` +
-        `excede el pie real (${pieRealPorc.toFixed(1)}%).`
+        `Cuota inicial (${upfrontPorc}%) + cuotas (${cuotasPorcParaSuma.toFixed(1)}%) + final (${cuotaFinalPorc}%) ` +
+        `= ${desglosePorc.toFixed(1)}% excede el pie real (${pieRealPorc.toFixed(1)}%).`
       );
     }
-    if (cuotasN === 0 && desglosePorc > 0) {
-      const diff = pieRealPorc - desglosePorc;
+    // En modo explícito (cuotasPorc>0): verificar coherencia con pieReal%
+    if (cuotasPorc > 0 || (upfrontPorc + cuotaFinalPorc > 0 && cuotasN > 0)) {
+      const diff = desglosePorc - pieRealPorc;
+      if (Math.abs(diff) > 0.5) {
+        advertencias.push(
+          `Inicial (${upfrontPorc}%) + cuotas (${cuotasPorcParaSuma.toFixed(1)}%) + final (${cuotaFinalPorc}%) ` +
+          `= ${desglosePorc.toFixed(1)}% ${diff > 0 ? 'excede' : 'no llega'} al pie real (${pieRealPorc.toFixed(1)}%). ` +
+          `Diferencia: ${Math.abs(diff).toFixed(1)}%`
+        );
+      }
+    }
+    if (cuotasN === 0 && (upfrontPorc + cuotaFinalPorc) > 0) {
+      const sumUpFinal = upfrontPorc + cuotaFinalPorc;
+      const diff = pieRealPorc - sumUpFinal;
       if (Math.abs(diff) > 0.01) {
         errores.push(
-          `Con 0 cuotas, upfront + cuota final (${desglosePorc.toFixed(1)}%) ` +
+          `Con 0 cuotas, cuota inicial + final (${sumUpFinal.toFixed(1)}%) ` +
           `debe igualar el pie real (${pieRealPorc.toFixed(1)}%). Diferencia: ${diff.toFixed(1)}%`
         );
       }
@@ -336,7 +361,7 @@
         bonoImplicitoPorc: bonoImpl, descImplicitoPorc: descImpl,
         bonoPorc, descuentoPorc,
         estCant, estPrecioUf: estPrecio, bodCant, bodPrecioUf: bodPrecio,
-        piePorc, upfrontPorc, cuotasN, cuotaFinalPorc,
+        piePorc, upfrontPorc, cuotasN, cuotasPorc, cuotaFinalPorc,
         plazoMeses, tasaAnualPorc: tasa, ufClp
       },
       // Precio de la unidad
@@ -352,14 +377,15 @@
       precioTotalUf,
       // Pie
       pieTotalUf, pieRealUf, pieRealPorc,
-      upfrontUf, cuotaFinalUf, pieCuotaMensualUf,
+      upfrontUf, cuotasUf, cuotasPorcEfectivo, cuotaFinalUf, pieCuotaMensualUf,
       // Crédito
       saldoUf, divUf, pagoTotalUf, pagoTotalCreditoUf,
       // CLP (conveniencias)
       precioFinalClp, precioTotalClp, pieRealClp, saldoClp, divClp, pagoTotalClp,
       // Validación
       esValido: errores.length === 0,
-      errores
+      errores,
+      advertencias
     };
   }
 
