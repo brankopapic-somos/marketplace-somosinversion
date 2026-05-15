@@ -1241,22 +1241,40 @@ function renderCotizador(unidadId) {
         </div>
 
         <div class="cot-card">
-          <h3>Pie</h3>
-          <div class="cot-grid-2">
+          <h3>Pie y ajustes de precio</h3>
+          <div class="cot-grid-3">
             <div class="cot-field">
-              <label>Pie (%)</label>
+              <label>Pie total (%)</label>
               <input type="number" id="c-pie" value="${piePorcDefault}" min="0" max="100" step="1">
             </div>
             <div class="cot-field">
               <label>Bono pie (%) <span style="font-weight:400;color:#9ca3af;">máx 20</span></label>
               <input type="number" id="c-bono" value="${bonoDefault}" min="0" max="20" step="0.1">
-              ${bonoImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--brand-secondary);margin-top:4px;line-height:1.3;">⚠ Implícito en precio: <strong>${bonoImplicitoPorc}%</strong>. Si bajás → descuento. Si subís → mayor bono.</div>` : ''}
+              ${bonoImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--brand-secondary);margin-top:4px;line-height:1.3;">⚠ Implícito: <strong>${bonoImplicitoPorc}%</strong></div>` : ''}
             </div>
             <div class="cot-field">
               <label>Descuento (%) <span style="font-weight:400;color:#9ca3af;">máx 50</span></label>
               <input type="number" id="c-descuento" value="${descDefault}" min="0" max="50" step="0.1">
-              ${descImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--color-danger);margin-top:4px;line-height:1.3;">⚠ Implícito en precio: <strong>${descImplicitoPorc}%</strong>. Si bajás → precio sube. Si subís → mayor descuento.</div>` : ''}
+              ${descImplicitoPorc > 0 ? `<div style="font-size:10px;color:var(--color-danger);margin-top:4px;line-height:1.3;">⚠ Implícito: <strong>${descImplicitoPorc}%</strong></div>` : ''}
             </div>
+          </div>
+        </div>
+
+        <!-- ======= CONDICIONES DEL PIE (editables por cotización) ======= -->
+        <div class="cot-card" style="border-left:4px solid #3b82f6;background:#f8fafc;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--color-border);">
+            <h3 style="margin:0;padding:0;border:none;color:#1e40af;">Condiciones del pie <span style="font-weight:400;color:#64748b;font-size:10px;text-transform:none;letter-spacing:normal;">(editables — distribución del pie para este cliente)</span></h3>
+            ${hasCondicionesPie ? `<button type="button" id="btn-restaurar-condiciones" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;color:#1e40af;border:1px solid #93c5fd;background:#eff6ff;">↺ Restaurar defaults del proyecto</button>` : ''}
+          </div>
+          ${hasCondicionesPie ? `
+            <div style="font-size:11px;color:#1e40af;background:#eff6ff;padding:6px 10px;border-radius:4px;margin-bottom:10px;line-height:1.4;">
+              ℹ Precargado desde proyecto <strong>${p.nombre}</strong>:
+              ${upfrontPorcDefault > 0 ? `inicial ${upfrontPorcDefault}%` : ''}${cuotasNDefault > 0 ? ` · ${cuotasNDefault} cuotas (${cuotasPorcDefault}%)` : ''}${cuotaFinalPorcDefault > 0 ? ` · final ${cuotaFinalPorcDefault}%` : ''}. Modificá lo que necesites.
+            </div>` : `
+            <div style="font-size:11px;color:#64748b;background:#fff;padding:6px 10px;border-radius:4px;margin-bottom:10px;line-height:1.4;">
+              Este proyecto no tiene condiciones precargadas. Definí la estructura para este cliente.
+            </div>`}
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
             <div class="cot-field">
               <label>Cuota inicial (%) <span style="font-weight:400;color:#9ca3af;">al firmar</span></label>
               <input type="number" id="c-upfront" value="${upfrontPorcDefault}" min="0" max="100" step="0.1">
@@ -1273,15 +1291,9 @@ function renderCotizador(unidadId) {
               <label>Cuota final (%) <span style="font-weight:400;color:#9ca3af;">al escriturar</span></label>
               <input type="number" id="c-cuota-final" value="${cuotaFinalPorcDefault}" min="0" max="100" step="0.1">
             </div>
-            ${hasCondicionesPie ? `
-            <div class="cot-field" style="grid-column:1 / -1;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:4px;padding:6px 10px;">
-              <div style="font-size:11px;color:#1e40af;line-height:1.4;">
-                ℹ Condiciones de pie precargadas desde el proyecto <strong>${p.nombre}</strong>:
-                ${upfrontPorcDefault > 0 ? `cuota inicial ${upfrontPorcDefault}%` : ''}${cuotasNDefault > 0 ? ` · ${cuotasNDefault} cuotas (${cuotasPorcDefault}%)` : ''}${cuotaFinalPorcDefault > 0 ? ` · final ${cuotaFinalPorcDefault}%` : ''}.
-                Podés ajustarlas para este cliente.
-              </div>
-            </div>` : ''}
           </div>
+          <!-- Resumen del cuadre en vivo -->
+          <div id="r-cuadre-pie" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-family:var(--font-tech);line-height:1.5;"></div>
           <div id="cot-pie-validation"></div>
         </div>
 
@@ -1479,6 +1491,41 @@ function renderCotizador(unidadId) {
     rEl('r-div', divUf > 0 ? `$ ${fmtClp(divUf * ufClp)} / mes` : '—');
     rEl('r-pago-total', `UF ${fmtUf(pagoTotalUf)} (~$ ${fmtClp(pagoTotalUf * ufClp)})`);
 
+    // === Resumen del cuadre del pie en vivo ===
+    // Compara: inicial + cuotas + final  vs  pie real (= pie total − bono)
+    const sumaDistribucion = upfrontPorc + (cuotasPorc > 0 ? cuotasPorc : cuotasPorcEfectivo) + cuotaFinalPorc;
+    const diff = sumaDistribucion - pieRealPorc;
+    const isModified = (upfrontPorc !== upfrontPorcDefault)
+      || (cuotasPorc !== cuotasPorcDefault)
+      || (cuotasN !== cuotasNDefault)
+      || (cuotaFinalPorc !== cuotaFinalPorcDefault);
+    let cuadreBg, cuadreColor, cuadreIcono;
+    if (sumaDistribucion === 0 && pieRealPorc === 0) {
+      cuadreBg = '#f1f5f9'; cuadreColor = '#64748b'; cuadreIcono = '○';
+    } else if (Math.abs(diff) < 0.01) {
+      cuadreBg = '#dcfce7'; cuadreColor = '#166534'; cuadreIcono = '✓';
+    } else if (Math.abs(diff) < 0.5) {
+      cuadreBg = '#fef9c3'; cuadreColor = '#854d0e'; cuadreIcono = '≈';
+    } else {
+      cuadreBg = '#fef2f2'; cuadreColor = '#991b1b'; cuadreIcono = '✗';
+    }
+    const cuadreEl = document.getElementById('r-cuadre-pie');
+    if (cuadreEl) {
+      const partes = [];
+      if (upfrontPorc > 0) partes.push(`inicial ${upfrontPorc}%`);
+      if (cuotasN > 0) partes.push(`${cuotasN} × cuotas (${(cuotasPorc > 0 ? cuotasPorc : cuotasPorcEfectivo).toFixed(1)}%)`);
+      if (cuotaFinalPorc > 0) partes.push(`final ${cuotaFinalPorc}%`);
+      const distribucion = partes.length ? partes.join(' + ') : 'sin distribución';
+      cuadreEl.style.background = cuadreBg;
+      cuadreEl.style.color = cuadreColor;
+      cuadreEl.innerHTML = `
+        <strong>${cuadreIcono} Cuadre del pie:</strong> ${distribucion} = <strong>${sumaDistribucion.toFixed(1)}%</strong>
+        ${pieRealPorc > 0 ? ` &nbsp;·&nbsp; Pie real (cliente) = <strong>${pieRealPorc.toFixed(1)}%</strong>` : ''}
+        ${Math.abs(diff) >= 0.01 && pieRealPorc > 0 ? ` &nbsp;·&nbsp; diff <strong>${diff > 0 ? '+' : ''}${diff.toFixed(1)}%</strong>` : ''}
+        ${isModified ? '<span style="float:right;font-size:10px;opacity:0.7;">✎ modificado vs proyecto</span>' : ''}
+      `;
+    }
+
     // Validación visual (errores + advertencias del motor)
     const validationErr = c.errores.join(' ');
     const advert = (c.advertencias || []).join(' ');
@@ -1513,6 +1560,19 @@ function renderCotizador(unidadId) {
                     'c-plazo','c-tasa'];
   inputIds.forEach(id => document.getElementById(id).addEventListener('input', recalc));
   recalc();
+
+  // Botón "Restaurar defaults del proyecto" — vuelve a los valores configurados
+  const btnRestaurar = document.getElementById('btn-restaurar-condiciones');
+  if (btnRestaurar) {
+    btnRestaurar.addEventListener('click', () => {
+      document.getElementById('c-upfront').value = upfrontPorcDefault;
+      document.getElementById('c-cuotas-porcentaje').value = cuotasPorcDefault;
+      document.getElementById('c-cuotas-n').value = cuotasNDefault;
+      document.getElementById('c-cuota-final').value = cuotaFinalPorcDefault;
+      recalc();
+      showToast('Condiciones del pie restauradas a los defaults del proyecto');
+    });
+  }
 
   document.getElementById('btn-guardar-cot').addEventListener('click', () => {
     if (!lastCalc.isValid) {
